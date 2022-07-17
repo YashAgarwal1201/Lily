@@ -1,2 +1,1 @@
-# Lily
-# Language Detection & Translation
+# Lily (Language Detection & Translation)
