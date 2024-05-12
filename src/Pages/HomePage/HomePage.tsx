@@ -1,9 +1,12 @@
-import React from 'react'
+import React from "react";
+import ChatComponent from "../../Components/ChatComponent/ChatComponent";
 
 const HomePage = () => {
   return (
-    <div>HomePage</div>
-  )
-}
+    <div className="w-full h-full p-1 sm:p-2 mdl:p-3 2xl:px-5 bg-color3 rounded-lg">
+      <ChatComponent />
+    </div>
+  );
+};
 
-export default HomePage
+export default HomePage;
