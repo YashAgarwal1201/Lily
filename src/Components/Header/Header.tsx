@@ -6,9 +6,10 @@ const Header = () => {
   const location = useLocation();
   const navigate = useNavigate();
 
-  const headerBtnStyles = "w-full h-auto aspect-square text-color5 bg-color4 rounded-md";
+  const headerBtnStyles = "w-auto md:w-full h-full md:h-auto aspect-square text-color5 bg-color4 rounded-md";
+
   return (
-    <div className="w-full h-full ps-2 py-2 pe-1 flex flex-col items-center justify-center gap-2">
+    <div className="w-full h-full ps-2 py-2 pe-1 flex flex-row md:flex-col items-center justify-center gap-2">
       {/* <img src={"./logo.svg"} className={`${headerBtnStyles} bg-transparent justify-end`} /> */}
       {location.pathname === "/" ? (
         <>
