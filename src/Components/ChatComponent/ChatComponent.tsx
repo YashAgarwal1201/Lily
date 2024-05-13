@@ -1,9 +1,9 @@
 import { Button } from "primereact/button";
-import React, { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import { downloadMessages } from "../../Services/common-functions";
 
 type Message = {
-  id: string | Number;
+  id: string | number;
   text: string;
   type: string;
   timestamp: string;
