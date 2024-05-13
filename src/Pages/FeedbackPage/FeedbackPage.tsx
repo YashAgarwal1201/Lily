@@ -3,6 +3,8 @@ import { InputText } from "primereact/inputtext";
 import { InputTextarea } from "primereact/inputtextarea";
 import { Button } from "primereact/button";
 import { FeedbackFormType } from "../../Services/interfacesAndTypes";
+import { useState } from "react";
+import { BASE_API_LINK } from "../../Services/constants";
 // import { Toast } from "primereact/toast";
 // import { useRef } from "react";
 
@@ -13,11 +15,45 @@ const FeedbackPage = () => {
     formState: { errors },
     reset,
   } = useForm<FeedbackFormType>();
+
+  const [loading, setLoading] = useState<boolean>(false);
   // const toast = useRef(null);
 
-  const onSubmit = (data: any) => {
-    console.log(data); // Log or replace this with an API call
-    reset(); // Reset form fields after submission
+  const onSubmit = async (data: FeedbackFormType) => {
+    try {
+      setLoading(true);
+
+      const response = await fetch(
+        `${BASE_API_LINK}/api-services/my-portfolio/contact-form-data`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            email: data.email,
+            name: data.name,
+            message: data.message,
+          }),
+        }
+      );
+
+      if (response.ok) {
+        setLoading(false);
+        reset();
+
+        // showToast("success", "Success", "Form submitted");
+      } else {
+        setLoading(false);
+        // const errorResponse = await response.json(); // Assuming the server sends error details as JSON
+        console.error("Error:", response.text || "An unknown error occurred");
+
+        // showToast("error", "Error", "Failed to submit form");
+      }
+    } catch (error) {
+      setLoading(false);
+      console.error("Error:", error);
+    }
   };
 
   // Function to handle discarding the form
@@ -33,11 +69,14 @@ const FeedbackPage = () => {
           <h2 className="text-center text-lg sm:text-xl mdl:text-2xl font-medium">
             Your Feedback
           </h2>
+
+          {/* feedback form fields */}
           <div className="field mt-4">
             <label htmlFor="name" className="block mb-2">
               Name
             </label>
             <InputText
+              readOnly={loading}
               id="name"
               {...register("name", { required: true })}
               className={`w-full p-2 ${
@@ -53,6 +92,7 @@ const FeedbackPage = () => {
               Email
             </label>
             <InputText
+              readOnly={loading}
               id="email"
               {...register("email", {
                 required: true,
@@ -71,6 +111,7 @@ const FeedbackPage = () => {
               Feedback
             </label>
             <InputTextarea
+              readOnly={loading}
               id="feedback"
               {...register("message", { required: true })}
               rows={5}
@@ -82,14 +123,18 @@ const FeedbackPage = () => {
               <small className="p-error">Feedback is required.</small>
             )}
           </div>
+
+          {/* feedback form actions */}
           <div className="flex justify-center gap-x-2 mt-6">
             <Button
+              loading={loading}
               type="submit"
               icon={"pi pi-send"}
               label="Submit"
               className="w-fit py-2 px-4 bg-color1 text-color2"
             />
             <Button
+              disabled={loading}
               type="button"
               icon="pi pi-trash"
               label="Discard"
