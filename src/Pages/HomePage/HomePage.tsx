@@ -1,4 +1,3 @@
-import React from "react";
 import ChatComponent from "../../Components/ChatComponent/ChatComponent";
 
 const HomePage = () => {
