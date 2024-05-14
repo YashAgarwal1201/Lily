@@ -57,6 +57,7 @@ const Header = () => {
         title="Settings menu"
         icon={"pi pi-cog"}
         className={headerBtnStyles}
+        onClick={() => showToast("info", "Info", "Feature under development")}
       />
     </div>
   );
