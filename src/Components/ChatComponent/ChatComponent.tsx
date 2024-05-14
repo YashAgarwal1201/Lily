@@ -1,16 +1,11 @@
 import { Button } from "primereact/button";
 import { useState, useEffect, useRef } from "react";
 import { downloadMessages } from "../../Services/common-functions";
-
-type Message = {
-  id: string | number;
-  text: string;
-  type: string;
-  timestamp: string;
-};
+import useMessageStore from "../../Services/messageStore";
 
 const ChatComponent = () => {
-  const [messages, setMessages] = useState<Message[]>([]);
+  // const [messages, setMessages] = useState<Message[]>([]);
+  const { messages, addMessage } = useMessageStore();
   const [newMessage, setNewMessage] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -26,7 +21,8 @@ const ChatComponent = () => {
       timestamp: new Date().toISOString(),
     };
 
-    setMessages((messages) => [...messages, userMessage]);
+    // setMessages((messages) => [...messages, userMessage]);
+    addMessage(userMessage);
     simulateBotResponse(newMessage);
     setNewMessage(""); // Clear the input after sending a message
   };
@@ -41,7 +37,8 @@ const ChatComponent = () => {
     };
 
     setTimeout(() => {
-      setMessages((messages) => [...messages, botMessage]);
+      // setMessages((messages) => [...messages, botMessage]);
+      addMessage(botMessage);
     }, 1000);
   };
 
@@ -126,12 +123,6 @@ const ChatComponent = () => {
         <Button
           icon={"pi pi-send"}
           type="submit"
-          rounded
-          className="send-button bg-color1 text-color2 font-bold py-2 px-4"
-        />
-        <Button
-          icon="pi pi-download"
-          onClick={() => downloadMessages(messages)}
           rounded
           className="send-button bg-color1 text-color2 font-bold py-2 px-4"
         />
