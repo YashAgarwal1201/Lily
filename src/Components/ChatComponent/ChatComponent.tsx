@@ -1,6 +1,5 @@
 import { Button } from "primereact/button";
 import { useState, useEffect, useRef } from "react";
-import { downloadMessages } from "../../Services/common-functions";
 import useMessageStore from "../../Services/messageStore";
 
 const ChatComponent = () => {
@@ -52,6 +51,7 @@ const ChatComponent = () => {
       <div className="messages-list p-3 overflow-auto flex-1 mb-4 ">
         {messages?.map((message, key) => (
           <div
+            key={key}
             className={`w-full flex ${
               message.type === "bot"
                 ? "flex-row"
@@ -85,7 +85,6 @@ const ChatComponent = () => {
                 } w-[calc(100%-16px)] h-full bg-color3`}
               ></div>
               <div
-                key={key}
                 className={`message w-[calc(100%-16px)] h-full z-10  p-2 shadow-sm ${
                   message.type === "bot"
                     ? "bg-color2 text-color5 rounded-r-md rounded-bl-md"
@@ -95,12 +94,12 @@ const ChatComponent = () => {
                 <strong
                   className={`${
                     message.type === "bot" ? "text-left" : "text-right "
-                  } capitalize`}
+                  } font-subheading capitalize`}
                 >
                   {message.type}
                 </strong>
-                <p className="break-words">{message.text}</p>
-                <small className="text-color1">
+                <p className="break-words font-content">{message.text}</p>
+                <small className="text-color1 font-subheading">
                   {new Date(message.timestamp)?.toLocaleTimeString()}
                 </small>
               </div>
@@ -117,10 +116,11 @@ const ChatComponent = () => {
           type="text"
           value={newMessage}
           onChange={(e) => setNewMessage(e.target.value)}
-          className="input flex-1 bg-color2 py-2 px-4 border-2 border-color1 rounded-full "
+          className="input flex-1 bg-color2 py-2 px-4 font-content border-2 border-color1 rounded-full "
           placeholder="Type a message..."
         />
         <Button
+          disabled={newMessage?.trim()?.length < 1}
           icon={"pi pi-send"}
           type="submit"
           rounded
