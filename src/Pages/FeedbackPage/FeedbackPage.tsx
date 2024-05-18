@@ -24,7 +24,7 @@ const FeedbackPage = () => {
       setLoading(true);
 
       const response = await fetch(
-        `${BASE_API_LINK}/api-services/my-portfolio/contact-form-data`,
+        `${BASE_API_LINK}/api-services/lily/feedback-form-data`,
         {
           method: "POST",
           headers: {
