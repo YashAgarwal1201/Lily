@@ -14,12 +14,17 @@ import HelloWorld from './components/HelloWorld.vue'
         <RouterLink to="/">Home</RouterLink>
         <RouterLink to="/about">About</RouterLink>
       </nav>
+
+      <p class="text-green-400 text-2xl">Hey</p>
     </div>
   </header>
 
   <RouterView />
 </template>
 
+<style>
+@import 'tailwindcss';
+</style>
 <style scoped>
 header {
   line-height: 1.5;
