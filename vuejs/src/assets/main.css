@@ -1,4 +1,4 @@
-@import './base.css';
+/* @import './base.css';
 
 #app {
   max-width: 1280px;
@@ -31,5 +31,79 @@ a,
     display: grid;
     grid-template-columns: 1fr 1fr;
     padding: 0 2rem;
+  }
+} */
+
+@import 'tailwindcss';
+
+/* Import PrimeVue styles */
+/* @import 'primevue/resources/primevue.min.css';
+@import 'primeicons/primeicons.css';
+@import 'primevue/resources/themes/tailwind-light/theme.css'; */
+
+/* Custom Variables */
+@theme {
+  --color1: #5e6a5b;
+  --color2: #f4f5e0;
+  --color3: #f5ebc9;
+  --color4: #acbc88;
+  --color5: #0a0b0f;
+
+  --content: 'Cabin', sans-serif;
+  --heading: 'Sniglet', cursive;
+  --subheading: 'Josefin Sans', cursive;
+}
+
+/* Smooth scrolling */
+* {
+  scroll-behavior: smooth;
+}
+
+/* PrimeVue Component Overrides */
+.p-button:focus,
+.p-inputtext:enabled:focus,
+.p-link:focus {
+  box-shadow: none !important;
+  outline: none !important;
+  border-color: var(--color1);
+  border: 0px;
+}
+
+.p-toast {
+  z-index: 10000;
+}
+
+.p-inputswitch-checked .p-inputswitch-slider {
+  background-color: var(--color3);
+}
+.p-inputswitch-checked .p-inputswitch-slider::before {
+  background-color: var(--color5);
+}
+
+/* Link Styles */
+a {
+  font-style: oblique;
+}
+
+/* Unordered List */
+ul {
+  list-style-type: disc;
+}
+
+/* Hover Styles */
+@media (hover: hover) and (pointer: fine) {
+  .p-button:hover,
+  a:hover {
+    color: var(--color5);
+    background-color: var(--color2);
+    border-color: var(--color2);
+  }
+}
+
+/* Responsive Toast */
+@media only screen and (max-width: 520px) {
+  .p-toast {
+    width: 80%;
+    max-width: 80%;
   }
 }
