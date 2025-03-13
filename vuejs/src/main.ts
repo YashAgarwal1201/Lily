@@ -16,7 +16,11 @@ app.use(PrimeVue, {
     preset: Aura,
   },
 })
-app.use(router)
 app.use(ToastService)
+router.afterEach((to) => {
+  const defaultTitle = 'My Vite App'
+  document.title = (to.meta?.title as string) || defaultTitle
+})
+app.use(router)
 
 app.mount('#app')

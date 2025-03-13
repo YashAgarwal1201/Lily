@@ -4,13 +4,15 @@
       <div class="flex flex-col gap-y-4 md:gap-y-5">
         <h1 class="text-xl md:text-2xl font-heading">Lily</h1>
         <div
+          v-if="categories.length > 0"
           class="w-full h-10 flex items-center gap-x-2 overflow-x-auto mb-4 rounded-lg scrollbar-hide"
         >
           <Button
-            v-for="index in 5"
-            :key="index"
+            v-for="(item, key) in categories"
+            :key="key"
             class="flex-shrink-0 text-xs md:text-sm rounded-full bg-color2 border border-color3 px-3 py-1"
-            label="btn"
+            :label="item"
+            @click="() => clipboardStore.setSelectedDevice(item)"
           />
         </div>
       </div>
@@ -144,6 +146,8 @@ import toastHandler from '@/composables/toastHandeler'
 
 const clipboardStore = useClipboardStore()
 const { showToast } = toastHandler()
+
+const categories = ['All devices', ...new Set(clipboardStore.items.map((value) => value.name))]
 
 const formatTimestamp = (timestamp: string) => {
   return new Date(timestamp).toLocaleString()

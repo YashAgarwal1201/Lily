@@ -7,9 +7,6 @@
     </div>
   </div>
 
-  <ShoppingCart />
-  <WishList />
-
   <!-- <Dialog
     v-model:visible="productsListStore.showFilters"
     v-on:hide="productsListStore.showFilters = false"
