@@ -1,57 +1,18 @@
-/* @import './base.css';
-
-#app {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
-  font-weight: normal;
-}
-
-a,
-.green {
-  text-decoration: none;
-  color: hsla(160, 100%, 37%, 1);
-  transition: 0.4s;
-  padding: 3px;
-}
-
-@media (hover: hover) {
-  a:hover {
-    background-color: hsla(160, 100%, 37%, 0.2);
-  }
-}
-
-@media (min-width: 1024px) {
-  body {
-    display: flex;
-    place-items: center;
-  }
-
-  #app {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    padding: 0 2rem;
-  }
-} */
+/* @import './base.css'; */
 
 @import 'tailwindcss';
 
-/* Import PrimeVue styles */
-/* @import 'primevue/resources/primevue.min.css';
-@import 'primeicons/primeicons.css';
-@import 'primevue/resources/themes/tailwind-light/theme.css'; */
-
 /* Custom Variables */
 @theme {
-  --color1: #5e6a5b;
-  --color2: #f4f5e0;
-  --color3: #f5ebc9;
-  --color4: #acbc88;
-  --color5: #0a0b0f;
+  --color-color1: #f5ebc9;
+  --color-color2: #f4f5e0;
+  --color-color3: #acbc88;
+  --color-color4: #5e6a5b;
+  --color-color5: #0a0b0f;
 
-  --content: 'Cabin', sans-serif;
-  --heading: 'Sniglet', cursive;
-  --subheading: 'Josefin Sans', cursive;
+  --font-content: 'Cabin', sans-serif;
+  --font-heading: 'Sniglet', cursive;
+  --font-subheading: 'Josefin Sans', cursive;
 }
 
 /* Smooth scrolling */

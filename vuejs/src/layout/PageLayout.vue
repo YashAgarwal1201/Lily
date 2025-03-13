@@ -1,14 +1,11 @@
 <template>
-  <div class="w-screen h-screen flex flex-col md:flex-row">
+  <div class="w-screen h-screen flex flex-col md:flex-row bg-color5">
     <Toast />
     <div class="w-full md:w-[70px] h-[60px] md:h-full"><NavBar /></div>
     <div class="w-full md:w-[calc(100%-70px)] h-[calc(100%-60px)] md:h-full overflow-auto">
       <slot />
     </div>
   </div>
-
-  <ShoppingCart />
-  <WishList />
 
   <!-- <Dialog
     v-model:visible="productsListStore.showFilters"
