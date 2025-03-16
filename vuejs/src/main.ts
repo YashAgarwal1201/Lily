@@ -14,6 +14,12 @@ app.use(createPinia())
 app.use(PrimeVue, {
   theme: {
     preset: Aura,
+    options: {
+      cssLayer: {
+        name: 'primevue',
+        order: 'theme, base, primevue',
+      },
+    },
   },
 })
 app.use(ToastService)
