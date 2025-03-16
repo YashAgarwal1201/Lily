@@ -125,7 +125,9 @@
               @keyup.enter="handleSendClipboard"
             />
             <Button
+              :disabled="clipboardStore.inputValue.trim() === ''"
               rounded
+              :class="{ 'pointer-events-none': clipboardStore.inputValue.trim() === '' }"
               class="p-3 h-full bg-color3 text-color5 border-transparent"
               @click="handleSendClipboard"
               title="Add to clipboard"

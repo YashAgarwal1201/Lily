@@ -15,14 +15,14 @@
         :to="item.path"
         :class="[
           pathname === item.path ? selectedOptionStyles : 'bg-transparent text-color6',
-          'flex justify-center items-center rounded-3xl aspect-square w-12 lg:w-16 h-full lg:h-16',
+          'flex justify-center items-center rounded-3xl size-12  md:size-14 lg:size-16',
         ]"
       >
         <component :is="item.icon" size="20" />
       </RouterLink>
 
       <button
-        class="bg-transparent text-color6 flex justify-center items-center rounded-3xl size-12 lg:size-16 border-none"
+        class="bg-transparent text-color6 flex justify-center items-center rounded-3xl size-12 md:size-14 lg:size-16 border-none"
         @click="openFeedbackDialog"
       >
         <MessageCircleHeart size="20" />
