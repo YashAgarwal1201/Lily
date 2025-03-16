@@ -1,3 +1,5 @@
+<!-- TODO: select all to delete functionality, starred or important clipboard item, reply feature, image preview (if clipboard item has image), caoverting input text to textarea along with file input -->
+
 <template>
   <PageLayout>
     <div class="w-full h-full p-4 flex flex-col justify-start text-color6">
@@ -123,6 +125,7 @@
               class="w-full h-full py-2 px-4 font-content rounded-full text-sm md:text-base bg-color3 text-color5 focus:outline-none focus:ring-2 focus:ring-color1 placeholder:text-color4"
               v-model="clipboardStore.inputValue"
               @keyup.enter="handleSendClipboard"
+              maxlength="500"
             />
             <Button
               :disabled="clipboardStore.inputValue.trim() === ''"

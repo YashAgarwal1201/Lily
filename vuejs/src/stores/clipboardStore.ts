@@ -1,3 +1,5 @@
+// TODO: saving data in indexDB, clipboard type can be anything (updating logics accordingly)
+
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { v4 as uuid } from 'uuid'

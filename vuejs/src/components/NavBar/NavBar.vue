@@ -1,3 +1,5 @@
+<!-- TODO: side menu, project logo, feedback dialog -->
+
 <template>
   <div
     class="w-full h-full p-4 flex flex-row md:flex-col justify-between items-center text-color6 bg-color4 rounded-bl-2xl md:rounded-bl-none rounded-br-2xl rounded-tr-none md:rounded-tr-2xl"
