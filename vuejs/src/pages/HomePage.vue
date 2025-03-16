@@ -10,7 +10,7 @@
           <Button
             v-for="(item, key) in categories"
             :key="key"
-            class="flex-shrink-0 text-xs md:text-sm rounded-full bg-color2 border border-color3 px-3 py-1"
+            class="flex-shrink-0 text-xs md:text-sm rounded-full bg-color3 border border-color3 px-3 py-1"
             :label="item"
             @click="() => clipboardStore.setSelectedDevice(item)"
           />
@@ -29,11 +29,11 @@
             >
               <div class="flex flex-row gap-x-3 items-center">
                 <div
-                  class="size-8 md:size-9 flex justify-center items-center bg-color3 text-color1 rounded-full"
+                  class="size-8 md:size-9 flex justify-center items-center bg-color2 text-color5 rounded-full"
                 >
                   <!-- Placeholder for Icon -->
                   <!-- <item.icon :size="16" color="white" /> -->
-                  <User :size="16" color="white" />
+                  <User :size="16" />
                 </div>
                 <span class="font-medium font-subheading">
                   {{ item.name }}
@@ -99,7 +99,11 @@
               </div>
             </div>
           </template>
-          <div v-else>
+
+          <div
+            v-else
+            class="w-full h-full flex justify-center items-center text-base md:text-lg font-content italic text-color2"
+          >
             <p>No clipboard item found</p>
           </div>
 
@@ -113,16 +117,16 @@
 
         <!-- Input field at the bottom -->
         <div class="w-full h-10 bg-color5 flex-shrink-0">
-          <div class="flex gap-2 items-center">
+          <div class="flex h-full gap-2 items-center">
             <InputText
               placeholder="Type text to add to clipboard..."
-              class="w-full py-2 px-4 font-content rounded-full text-sm md:text-base bg-color2 text-color6 focus:outline-none focus:ring-2 focus:ring-color1 placeholder:text-color4"
+              class="w-full h-full py-2 px-4 font-content rounded-full text-sm md:text-base bg-color3 text-color5 focus:outline-none focus:ring-2 focus:ring-color1 placeholder:text-color4"
               v-model="clipboardStore.inputValue"
               @keyup.enter="handleSendClipboard"
             />
             <Button
               rounded
-              class="p-3 bg-color1 text-white"
+              class="p-3 h-full bg-color3 text-color5 border-transparent"
               @click="handleSendClipboard"
               title="Add to clipboard"
               ><Send :size="16"
