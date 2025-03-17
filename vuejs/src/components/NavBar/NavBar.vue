@@ -52,7 +52,7 @@ const { showToast } = toastHandler()
 const route = useRoute()
 const pathname = ref(route.path)
 
-const selectedOptionStyles = 'bg-white text-black'
+const selectedOptionStyles = 'bg-color2 text-black'
 
 const menuItems = [{ path: '/', icon: House }]
 

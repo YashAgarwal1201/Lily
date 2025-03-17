@@ -8,20 +8,33 @@
         class="w-full h-64 mb-4 rounded-lg border border-color3"
       ></iframe> -->
       <div class="flex flex-col gap-y-4 md:gap-y-5">
-        <h1 class="text-xl md:text-2xl font-heading">Lily</h1>
+        <h1 class="text-xl md:text-2xl 2xl:text-3xl font-heading text-color1">Lily</h1>
         <div
           v-if="categories.length > 0"
           class="w-full h-10 flex items-center gap-x-2 overflow-x-auto mb-4 rounded-lg scrollbar-hide"
         >
           <Button
-            class="flex-shrink-0 text-xs md:text-sm rounded-full bg-color3 border border-color3 px-3 py-1"
-            label="Starred"
+            class="flex-shrink-0 flex items-center gap-x-2 text-xs md:text-sm rounded-full border px-3 py-1"
+            :class="{
+              'bg-color2 text-color5 border-color2 pointer-events-none':
+                clipboardStore.selectedDevice === 'starred',
+              'bg-transparent text-color2 border-transparent pointer-events-auto':
+                clipboardStore.selectedDevice !== 'starred',
+            }"
             @click="() => clipboardStore.setSelectedDevice('starred')"
-          />
+            ><Star :size="16" /><span>Starred</span></Button
+          >
+
           <Button
             v-for="(item, key) in categories"
             :key="key"
-            class="flex-shrink-0 text-xs md:text-sm rounded-full bg-color3 border border-color3 px-3 py-1"
+            class="flex-shrink-0 text-xs md:text-sm rounded-full border px-3 py-1"
+            :class="{
+              'bg-color2 text-color5 border-color2 pointer-events-none':
+                clipboardStore.selectedDevice === item,
+              'bg-transparent text-color2 border-transparent pointer-events-auto':
+                clipboardStore.selectedDevice !== item,
+            }"
             :label="item"
             @click="() => clipboardStore.setSelectedDevice(item)"
           />
@@ -144,7 +157,7 @@
           <div class="flex h-full gap-2 items-center">
             <InputText
               placeholder="Type text to add to clipboard..."
-              class="w-full h-full py-2 px-4 font-content rounded-full text-sm md:text-base bg-color3 text-color5 focus:outline-none focus:ring-2 focus:ring-color1 placeholder:text-color4"
+              class="w-full h-full py-2 px-4 font-content rounded-full text-sm md:text-base bg-color4 text-color1 focus:outline-none focus:ring-2 focus:ring-color1 placeholder:text-color2"
               v-model="clipboardStore.inputValue"
               @keyup.enter="handleSendClipboard"
               maxlength="500"
@@ -153,7 +166,7 @@
               :disabled="clipboardStore.inputValue.trim() === ''"
               rounded
               :class="{ 'pointer-events-none': clipboardStore.inputValue.trim() === '' }"
-              class="p-3 h-full bg-color3 text-color5 border-transparent"
+              class="p-3 h-full bg-color4 text-color1 border-transparent"
               @click="handleSendClipboard"
               title="Add to clipboard"
               ><Send :size="16"
