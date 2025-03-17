@@ -120,8 +120,10 @@
 
           <div
             v-else
-            class="w-full h-full flex justify-center items-center text-base md:text-lg font-content italic text-color2"
+            class="w-full h-full flex flex-col justify-center items-center text-base md:text-lg font-content italic text-color2"
           >
+            <Image :src="NotFound" alt="" class="max-w-full w-96" />
+            <!-- <NotFound /> -->
             <p>No clipboard item found</p>
           </div>
 
@@ -164,7 +166,7 @@ import { ref } from 'vue'
 import PageLayout from '@/layout/PageLayout.vue'
 import { Button, Image, InputText, ScrollTop } from 'primevue'
 import { Copy, Download, Trash, Send, ChevronUp, User, Star } from 'lucide-vue-next'
-
+import NotFound from '@/assets/notFound.svg'
 import { useClipboardStore } from '@/stores/clipboardStore'
 import { copyClipboardItem, downloadClipboardItem } from '@/utils/clipboardHandelers'
 import toastHandler from '@/composables/toastHandeler'

@@ -77,7 +77,6 @@ export const useClipboardStore = defineStore('clipboard', () => {
 
   const setSelectedDevice = (device: string) => {
     selectedDevice.value = device
-    console.log('device', device)
   }
 
   const clearItems = () => {
