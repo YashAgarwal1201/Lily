@@ -3,6 +3,10 @@
 <template>
   <PageLayout>
     <div class="w-full h-full p-4 flex flex-col justify-start text-color6">
+      <!-- <iframe
+        src="http://localhost:4500"
+        class="w-full h-64 mb-4 rounded-lg border border-color3"
+      ></iframe> -->
       <div class="flex flex-col gap-y-4 md:gap-y-5">
         <h1 class="text-xl md:text-2xl font-heading">Lily</h1>
         <div
