@@ -4,8 +4,8 @@
 
 /* Custom Variables */
 @theme {
-  --color-color1: #f5ebc9;
-  --color-color2: #f4f5e0;
+  --color-color1: #f4f5e0;
+  --color-color2: #f5ebc9;
   --color-color3: #acbc88;
   --color-color4: #5e6a5b;
   --color-color5: #0a0b0f;
@@ -56,8 +56,8 @@ ul {
   .p-button:hover,
   a:hover {
     color: var(--color-color5);
-    background-color: var(--color-color2);
-    border-color: var(--color-color2);
+    background-color: var(--color-color3);
+    border-color: var(--color-color3);
   }
 }
 

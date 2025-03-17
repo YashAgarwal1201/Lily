@@ -3,16 +3,38 @@
 <template>
   <PageLayout>
     <div class="w-full h-full p-4 flex flex-col justify-start text-color6">
+      <!-- <iframe
+        src="http://localhost:4500"
+        class="w-full h-64 mb-4 rounded-lg border border-color3"
+      ></iframe> -->
       <div class="flex flex-col gap-y-4 md:gap-y-5">
-        <h1 class="text-xl md:text-2xl font-heading">Lily</h1>
+        <h1 class="text-xl md:text-2xl 2xl:text-3xl font-heading text-color1">Lily</h1>
         <div
           v-if="categories.length > 0"
           class="w-full h-10 flex items-center gap-x-2 overflow-x-auto mb-4 rounded-lg scrollbar-hide"
         >
           <Button
+            class="flex-shrink-0 flex items-center gap-x-2 text-xs md:text-sm rounded-full border px-3 py-1"
+            :class="{
+              'bg-color2 text-color5 border-color2 pointer-events-none':
+                clipboardStore.selectedDevice === 'starred',
+              'bg-transparent text-color2 border-transparent pointer-events-auto':
+                clipboardStore.selectedDevice !== 'starred',
+            }"
+            @click="() => clipboardStore.setSelectedDevice('starred')"
+            ><Star :size="16" /><span>Starred</span></Button
+          >
+
+          <Button
             v-for="(item, key) in categories"
             :key="key"
-            class="flex-shrink-0 text-xs md:text-sm rounded-full bg-color3 border border-color3 px-3 py-1"
+            class="flex-shrink-0 text-xs md:text-sm rounded-full border px-3 py-1"
+            :class="{
+              'bg-color2 text-color5 border-color2 pointer-events-none':
+                clipboardStore.selectedDevice === item,
+              'bg-transparent text-color2 border-transparent pointer-events-auto':
+                clipboardStore.selectedDevice !== item,
+            }"
             :label="item"
             @click="() => clipboardStore.setSelectedDevice(item)"
           />
@@ -72,6 +94,17 @@
                   <Button
                     rounded
                     text
+                    title="Starred"
+                    class="p-2 text-color2"
+                    :class="{ 'bg-color3': item.starred }"
+                    @click="clipboardStore.toggleStarred(item.id)"
+                    ><Star :size="16"
+                  /></Button>
+
+                  <!-- Copy Button -->
+                  <Button
+                    rounded
+                    text
                     title="Copy"
                     class="p-2 text-color2"
                     @click="handleCopyClipboard(item.data.content)"
@@ -92,7 +125,7 @@
                   <Button
                     rounded
                     text
-                    @click="handleDeleteItem(item.data.id)"
+                    @click="handleDeleteItem(item.id)"
                     title="Delete"
                     class="p-2 text-color2"
                     ><Trash :size="16"
@@ -104,8 +137,10 @@
 
           <div
             v-else
-            class="w-full h-full flex justify-center items-center text-base md:text-lg font-content italic text-color2"
+            class="w-full h-full flex flex-col justify-center items-center text-base md:text-lg font-content italic text-color2"
           >
+            <Image :src="NotFound" alt="" class="max-w-full w-96" />
+            <!-- <NotFound /> -->
             <p>No clipboard item found</p>
           </div>
 
@@ -122,7 +157,7 @@
           <div class="flex h-full gap-2 items-center">
             <InputText
               placeholder="Type text to add to clipboard..."
-              class="w-full h-full py-2 px-4 font-content rounded-full text-sm md:text-base bg-color3 text-color5 focus:outline-none focus:ring-2 focus:ring-color1 placeholder:text-color4"
+              class="w-full h-full py-2 px-4 font-content rounded-full text-sm md:text-base bg-color4 text-color1 focus:outline-none focus:ring-2 focus:ring-color1 placeholder:text-color2"
               v-model="clipboardStore.inputValue"
               @keyup.enter="handleSendClipboard"
               maxlength="500"
@@ -131,7 +166,7 @@
               :disabled="clipboardStore.inputValue.trim() === ''"
               rounded
               :class="{ 'pointer-events-none': clipboardStore.inputValue.trim() === '' }"
-              class="p-3 h-full bg-color3 text-color5 border-transparent"
+              class="p-3 h-full bg-color4 text-color1 border-transparent"
               @click="handleSendClipboard"
               title="Add to clipboard"
               ><Send :size="16"
@@ -147,8 +182,8 @@
 import { ref } from 'vue'
 import PageLayout from '@/layout/PageLayout.vue'
 import { Button, Image, InputText, ScrollTop } from 'primevue'
-import { Copy, Download, Trash, Send, ChevronUp, User } from 'lucide-vue-next'
-
+import { Copy, Download, Trash, Send, ChevronUp, User, Star } from 'lucide-vue-next'
+import NotFound from '@/assets/notFound.svg'
 import { useClipboardStore } from '@/stores/clipboardStore'
 import { copyClipboardItem, downloadClipboardItem } from '@/utils/clipboardHandelers'
 import toastHandler from '@/composables/toastHandeler'
@@ -187,7 +222,7 @@ const handleSendClipboard = () => {
 const handleDownloadClipboardItem = (data: {
   type: string
   content: string
-  id: string
+
   timestamp: string
 }) => {
   if (!data) {
