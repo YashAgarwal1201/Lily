@@ -10,6 +10,11 @@
           class="w-full h-10 flex items-center gap-x-2 overflow-x-auto mb-4 rounded-lg scrollbar-hide"
         >
           <Button
+            class="flex-shrink-0 text-xs md:text-sm rounded-full bg-color3 border border-color3 px-3 py-1"
+            label="Starred"
+            @click="() => clipboardStore.setSelectedDevice('starred')"
+          />
+          <Button
             v-for="(item, key) in categories"
             :key="key"
             class="flex-shrink-0 text-xs md:text-sm rounded-full bg-color3 border border-color3 px-3 py-1"
@@ -72,6 +77,17 @@
                   <Button
                     rounded
                     text
+                    title="Starred"
+                    class="p-2 text-color2"
+                    :class="{ 'bg-color3': item.starred }"
+                    @click="clipboardStore.toggleStarred(item.id)"
+                    ><Star :size="16"
+                  /></Button>
+
+                  <!-- Copy Button -->
+                  <Button
+                    rounded
+                    text
                     title="Copy"
                     class="p-2 text-color2"
                     @click="handleCopyClipboard(item.data.content)"
@@ -92,7 +108,7 @@
                   <Button
                     rounded
                     text
-                    @click="handleDeleteItem(item.data.id)"
+                    @click="handleDeleteItem(item.id)"
                     title="Delete"
                     class="p-2 text-color2"
                     ><Trash :size="16"
@@ -147,7 +163,7 @@
 import { ref } from 'vue'
 import PageLayout from '@/layout/PageLayout.vue'
 import { Button, Image, InputText, ScrollTop } from 'primevue'
-import { Copy, Download, Trash, Send, ChevronUp, User } from 'lucide-vue-next'
+import { Copy, Download, Trash, Send, ChevronUp, User, Star } from 'lucide-vue-next'
 
 import { useClipboardStore } from '@/stores/clipboardStore'
 import { copyClipboardItem, downloadClipboardItem } from '@/utils/clipboardHandelers'
@@ -187,7 +203,7 @@ const handleSendClipboard = () => {
 const handleDownloadClipboardItem = (data: {
   type: string
   content: string
-  id: string
+
   timestamp: string
 }) => {
   if (!data) {
