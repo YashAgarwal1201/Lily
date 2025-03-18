@@ -6,7 +6,7 @@
   >
     <div class="flex md:hidden flex-row items-center">
       <RouterLink to="/" class="cursor-pointer !hover:bg-color2">
-        <!-- <img src="~/assets/logo.svg" alt="" class="h-12 max-h-full" /> -->
+        <img src="@/assets/logo.svg" alt="" class="h-12 max-h-full text-color1" />
       </RouterLink>
     </div>
 

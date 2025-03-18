@@ -1,4 +1,4 @@
-<!-- TODO: select all to delete functionality, starred or important clipboard item, reply feature, image preview (if clipboard item has image), caoverting input text to textarea along with file input -->
+<!-- TODO: select all to delete functionality, reply feature, image preview (if clipboard item has image), caoverting input text to textarea along with file input -->
 
 <template>
   <PageLayout>
