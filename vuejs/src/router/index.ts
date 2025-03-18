@@ -9,6 +9,11 @@ const router = createRouter({
       name: 'home',
       component: HomePage,
     },
+    {
+      path: '/:pathMatch(.*)*', // Catch-all for 404 pages
+      name: 'not-found',
+      component: () => import('@/pages/404Page.vue'),
+    },
     // {
     //   path: '/about',
     //   name: 'about',
