@@ -67,7 +67,7 @@
                 class="ml-0 md:ml-4 lg:ml-5 p-3 md:p-4 flex flex-col gap-y-4 md:gap-y-5 w-full bg-color4 rounded-3xl"
               >
                 <div class="w-full select-none mb-3">
-                  <p
+                  <!-- <p
                     v-if="item.data.type === 'text'"
                     class="text-sm md:text-base break-words font-content"
                   >
@@ -78,7 +78,9 @@
                     :src="item.data.content"
                     alt="Clipboard content"
                     class="max-h-32 object-contain"
-                  />
+                  /> -->
+                  <!-- <div v-html="async () => await getFormattedContent(item.data.content)"></div> -->
+                  <div v-html="item.data.content"></div>
                 </div>
 
                 <!-- Action buttons -->
@@ -153,14 +155,19 @@
         </div>
 
         <!-- Input field at the bottom -->
-        <div class="w-full h-10 bg-color5 flex-shrink-0">
+        <div class="w-full bg-color5 flex-shrink-0">
           <div class="flex h-full gap-2 items-center">
-            <InputText
+            <!-- <InputText
               placeholder="Type text to add to clipboard..."
               class="w-full h-full py-2 px-4 font-content rounded-full text-sm md:text-base bg-color4 text-color1 focus:outline-none focus:ring-2 focus:ring-color1 placeholder:text-color2"
               v-model="clipboardStore.inputValue"
               @keyup.enter="handleSendClipboard"
               maxlength="500"
+            /> -->
+            <Editor
+              v-model="clipboardStore.inputValue"
+              placeholder="Type text to add to clipboard..."
+              class="w-full h-52 p-2 text-sm md:text-base bg-color4 text-color1 rounded-lg focus:outline-none focus:ring-2 focus:ring-color1"
             />
             <Button
               :disabled="clipboardStore.inputValue.trim() === ''"
@@ -179,19 +186,43 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import PageLayout from '@/layout/PageLayout.vue'
 import { Button, Image, InputText, ScrollTop } from 'primevue'
+import Editor from 'primevue/editor'
 import { Copy, Download, Trash, Send, ChevronUp, User, Star } from 'lucide-vue-next'
 import NotFound from '@/assets/notFound.svg'
 import { useClipboardStore } from '@/stores/clipboardStore'
 import { copyClipboardItem, downloadClipboardItem } from '@/utils/clipboardHandelers'
 import toastHandler from '@/composables/toastHandeler'
+import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 
 const clipboardStore = useClipboardStore()
 const { showToast } = toastHandler()
 
 const categories = ['All devices', ...new Set(clipboardStore.items.map((value) => value.name))]
+
+// const getFormattedContent = computed(() => async (content: string) => {
+const getFormattedContent = async (content: string) => {
+  if (!content) return ''
+
+  // Use synchronous version of marked
+  const rawHtml = await marked.parse(content, { breaks: true })
+
+  // Sanitize the HTML
+  return await DOMPurify.sanitize(rawHtml)
+}
+
+const parseMarkdown = async (markdownString: string): Promise<string> => {
+  if (!markdownString) return ''
+
+  // Convert Markdown to raw HTML (marked() returns a Promise)
+  const rawHtml = await marked(markdownString, { breaks: true })
+
+  // Sanitize the HTML
+  return DOMPurify.sanitize(rawHtml)
+}
 
 const formatTimestamp = (timestamp: string) => {
   return new Date(timestamp).toLocaleString()
