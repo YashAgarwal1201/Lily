@@ -1,61 +1,82 @@
+// reactjs/src/Components/ChatComponent/ChatComponent.tsx
 import { Button } from "primereact/button";
 import { useState, useEffect, useRef } from "react";
 import useMessageStore from "../../Services/messageStore";
+import { sendMessage } from "../../Services/tulipApi";
+import useToastStore from "../../Services/toastStore";
 
 const ChatComponent = () => {
-  // const [messages, setMessages] = useState<Message[]>([]);
-  const { messages, addMessage } = useMessageStore();
+  const {
+    messages,
+    addMessage,
+    sessionId,
+    setSessionId,
+    config,
+    isLoading,
+    setIsLoading,
+  } = useMessageStore();
+  const showToast = useToastStore((s) => s.showToast);
+
   const [newMessage, setNewMessage] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Function to handle sending a message
-  const handleSendMessage = (event: any) => {
+  const handleSendMessage = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!newMessage.trim()) return;
+    if (!newMessage.trim() || isLoading) return;
 
     const userMessage = {
-      id: messages.length + 1,
+      id: Date.now(),
       text: newMessage,
-      type: "user",
+      type: "user" as const,
       timestamp: new Date().toISOString(),
     };
 
-    // setMessages((messages) => [...messages, userMessage]);
     addMessage(userMessage);
-    simulateBotResponse(newMessage);
-    setNewMessage(""); // Clear the input after sending a message
+    setNewMessage("");
+    setIsLoading(true);
+
+    try {
+      const res = await sendMessage({
+        messages: [{ role: "user", content: newMessage }],
+        session_id: sessionId ?? undefined,
+        provider: config.provider,
+        model: config.model,
+        temperature: config.temperature,
+        max_tokens: config.max_tokens,
+      });
+
+      // Persist the session_id returned by the gateway
+      if (!sessionId) setSessionId(res.session_id);
+
+      addMessage({
+        id: Date.now() + 1,
+        text: res.content,
+        type: "bot",
+        timestamp: new Date().toISOString(),
+        provider: res.provider,
+        model: res.model,
+      });
+    } catch (err: any) {
+      showToast("error", "Gateway Error", err.message ?? "Request failed");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  // Simulate a bot response
-  const simulateBotResponse = (userInput: string) => {
-    const botMessage = {
-      id: messages.length + 2,
-      text: `${userInput}`,
-      type: "bot",
-      timestamp: new Date().toISOString(),
-    };
-
-    setTimeout(() => {
-      // setMessages((messages) => [...messages, botMessage]);
-      addMessage(botMessage);
-    }, 1000);
-  };
-
-  // Scroll to the bottom of the chat list every time messages update
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
   return (
     <div className="chat-container bg-color3 h-full flex flex-col">
-      <div className="messages-list p-3 overflow-auto flex-1 mb-4 ">
+      <div className="messages-list p-3 overflow-auto flex-1 mb-4">
         {messages?.map((message, key) => (
           <div
             key={key}
             className={`w-full flex ${
               message.type === "bot"
                 ? "flex-row"
-                : " flex-row-reverse justify-start"
+                : "flex-row-reverse justify-start"
             } gap-x-2`}
           >
             <Button
@@ -85,7 +106,7 @@ const ChatComponent = () => {
                 } w-[calc(100%-16px)] h-full bg-color3`}
               ></div>
               <div
-                className={`message w-[calc(100%-16px)] h-full z-10  p-2 shadow-sm ${
+                className={`message w-[calc(100%-16px)] h-full z-10 p-2 shadow-sm ${
                   message.type === "bot"
                     ? "bg-color2 text-color5 rounded-r-md rounded-bl-md"
                     : "bg-color4 text-color5 rounded-l-md rounded-br-md"
@@ -93,21 +114,48 @@ const ChatComponent = () => {
               >
                 <strong
                   className={`${
-                    message.type === "bot" ? "text-left" : "text-right "
+                    message.type === "bot" ? "text-left" : "text-right"
                   } font-subheading capitalize`}
                 >
-                  {message.type}
+                  {message.type === "bot" ? "Tulip" : "You"}
                 </strong>
                 <p className="break-words font-content">{message.text}</p>
-                <small className="text-color1 font-subheading">
-                  {new Date(message.timestamp)?.toLocaleTimeString()}
-                </small>
+                <div className="flex items-center justify-between mt-1">
+                  <small className="text-color1 font-subheading">
+                    {new Date(message.timestamp)?.toLocaleTimeString()}
+                  </small>
+                  {/* Model badge — only on assistant messages */}
+                  {message.type === "bot" && message.model && (
+                    <small className="text-color1 font-subheading opacity-60">
+                      {message.model}
+                    </small>
+                  )}
+                </div>
               </div>
             </div>
           </div>
         ))}
+
+        {/* Loading indicator */}
+        {isLoading && (
+          <div className="w-full flex flex-row gap-x-2">
+            <Button
+              icon={"pi pi-user"}
+              rounded
+              className="w-10 h-10 bg-color2 text-color5 shadow-sm"
+            />
+            <div className="flex items-center bg-color2 rounded-r-md rounded-bl-md px-4 py-2">
+              <i className="pi pi-spinner pi-spin text-color1" />
+              <small className="ml-2 font-subheading text-color1">
+                Thinking...
+              </small>
+            </div>
+          </div>
+        )}
+
         <div ref={messagesEndRef} />
       </div>
+
       <form
         onSubmit={handleSendMessage}
         className="send-message-form flex gap-x-2"
@@ -116,12 +164,13 @@ const ChatComponent = () => {
           type="text"
           value={newMessage}
           onChange={(e) => setNewMessage(e.target.value)}
-          className="input flex-1 bg-color2 py-2 px-4 font-content border-2 border-color1 rounded-full "
-          placeholder="Type a message..."
+          disabled={isLoading}
+          className="input flex-1 bg-color2 py-2 px-4 font-content border-2 border-color1 rounded-full disabled:opacity-50"
+          placeholder={isLoading ? "Tulip is thinking..." : "Type a message..."}
         />
         <Button
-          disabled={newMessage?.trim()?.length < 1}
-          icon={"pi pi-send"}
+          disabled={newMessage?.trim()?.length < 1 || isLoading}
+          icon={isLoading ? "pi pi-spinner pi-spin" : "pi pi-send"}
           type="submit"
           rounded
           className="send-button bg-color1 text-color2 font-bold py-2 px-4"

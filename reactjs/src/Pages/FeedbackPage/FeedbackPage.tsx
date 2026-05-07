@@ -4,7 +4,6 @@ import { InputTextarea } from "primereact/inputtextarea";
 import { Button } from "primereact/button";
 import { FeedbackFormType } from "../../Services/interfacesAndTypes";
 import { useState } from "react";
-import { BASE_API_LINK } from "../../Services/constants";
 // import { Toast } from "primereact/toast";
 // import { useRef } from "react";
 
@@ -23,20 +22,17 @@ const FeedbackPage = () => {
     try {
       setLoading(true);
 
-      const response = await fetch(
-        `${BASE_API_LINK}/api-services/lily/feedback-form-data`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            email: data.email,
-            name: data.name,
-            message: data.message,
-          }),
-        }
-      );
+      const response = await fetch(`/api-services/lily/feedback-form-data`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email: data.email,
+          name: data.name,
+          message: data.message,
+        }),
+      });
 
       if (response.ok) {
         setLoading(false);
