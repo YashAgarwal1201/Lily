@@ -8,17 +8,28 @@ import {
 } from "./interfacesAndTypes";
 import { AVAILABLE_MODELS } from "./constants";
 
-const MAX_VERSIONS = 3;
-
 type MessageStore = {
   messages: Message[];
   addMessage: (message: Message) => void;
   clearMessages: () => void;
-  // Replaces the last bot message with a new response, preserving version history
+
+  /**
+   * Replaces the last bot message with a new version.
+   * Pushes the previous version into `versions[]` first, then appends the new one.
+   * The new version becomes the active one.
+   */
   replaceLastBotMessage: (
-    updated: Omit<Message, "versionGroupId" | "versionIndex" | "allVersions">,
+    updated: Pick<
+      Message,
+      "text" | "provider" | "model" | "timestamp" | "ragUsed"
+    >,
   ) => void;
-  // Navigate ← → between stored versions on a message
+
+  /**
+   * Navigates between stored versions on a message.
+   * Only updates activeVersionIndex + syncs the root text/provider/model fields.
+   * Never mutates `versions[]`.
+   */
   navigateVersion: (
     messageId: string | number,
     direction: "prev" | "next",
@@ -61,66 +72,67 @@ const useMessageStore = create<MessageStore>((set) => ({
   replaceLastBotMessage: (updated) =>
     set((state) => {
       const messages = [...state.messages];
-      // Find the last bot message index
-      const lastBotIdx = [...messages]
-        .reverse()
-        .findIndex((m) => m.type === "bot" && !m.isPendingConfirm);
-      if (lastBotIdx === -1) {
-        // No existing bot message — just append (first response)
-        return {
-          messages: [
-            ...messages,
-            {
-              ...updated,
-              versionGroupId: crypto.randomUUID(),
-              versionIndex: 0,
-              activeVersionIndex: 0,
-              allVersions: [],
-            },
-          ],
-        };
+
+      // Find last real bot message (not a pending confirm card)
+      let lastBotIdx = -1;
+      for (let i = messages.length - 1; i >= 0; i--) {
+        if (messages[i].type === "bot" && !messages[i].isPendingConfirm) {
+          lastBotIdx = i;
+          break;
+        }
       }
 
-      const realIdx = messages.length - 1 - lastBotIdx;
-      const existing = messages[realIdx];
+      if (lastBotIdx === -1) {
+        // No prior bot message — this is a first response, just add it normally
+        // (shouldn't happen via retry path, but guard anyway)
+        return { messages };
+      }
 
-      // Build the version snapshot of the current displayed text
-      const currentDisplayedVersion: MessageVersion = {
-        versionIndex: existing.activeVersionIndex ?? existing.versionIndex ?? 0,
-        text:
-          existing.allVersions?.find(
-            (v) => v.versionIndex === (existing.activeVersionIndex ?? 0),
-          )?.text ?? existing.text,
-        provider: existing.provider,
-        model: existing.model,
-        timestamp: existing.timestamp,
-        ragUsed: existing.ragUsed,
-      };
+      const existing = messages[lastBotIdx];
+      const existingVersions: MessageVersion[] = existing.versions ?? [];
 
-      // Merge with existing history, cap at MAX_VERSIONS
-      const prevVersions: MessageVersion[] = existing.allVersions ?? [];
-      const alreadyStored = prevVersions.some(
-        (v) => v.versionIndex === currentDisplayedVersion.versionIndex,
-      );
-      const updatedVersions = alreadyStored
-        ? prevVersions
-        : [...prevVersions, currentDisplayedVersion].slice(-MAX_VERSIONS);
+      // If this is the very first time a version was created for this message,
+      // seed versions[] with the original response first
+      const seededVersions: MessageVersion[] =
+        existingVersions.length === 0
+          ? [
+              {
+                versionIndex: 0,
+                text: existing.text,
+                provider: existing.provider,
+                model: existing.model,
+                timestamp: existing.timestamp,
+                ragUsed: existing.ragUsed,
+              },
+            ]
+          : existingVersions;
 
-      const newVersionIndex = (existing.versionIndex ?? 0) + 1;
+      // New version index = length of seeded list (0-based, always grows)
+      const newVersionIndex = seededVersions.length;
 
-      messages[realIdx] = {
-        ...existing,
-        // Update displayed content
+      const newVersion: MessageVersion = {
+        versionIndex: newVersionIndex,
         text: updated.text,
         provider: updated.provider,
         model: updated.model,
         timestamp: updated.timestamp,
         ragUsed: updated.ragUsed,
-        // Version metadata
-        versionGroupId: existing.versionGroupId ?? crypto.randomUUID(),
-        versionIndex: newVersionIndex,
+      };
+
+      const allVersions = [...seededVersions, newVersion];
+
+      messages[lastBotIdx] = {
+        ...existing,
+        // Sync root fields to the new (latest) version
+        text: updated.text,
+        provider: updated.provider,
+        model: updated.model,
+        timestamp: updated.timestamp,
+        ragUsed: updated.ragUsed,
+        // Version state
+        versions: allVersions,
         activeVersionIndex: newVersionIndex,
-        allVersions: updatedVersions,
+        totalVersions: allVersions.length,
       };
 
       return { messages };
@@ -129,35 +141,24 @@ const useMessageStore = create<MessageStore>((set) => ({
   navigateVersion: (messageId, direction) =>
     set((state) => {
       const messages = state.messages.map((m) => {
-        if (m.id !== messageId) return m;
+        if (m.id !== messageId || !m.versions || m.versions.length <= 1)
+          return m;
 
-        const allVersions = m.allVersions ?? [];
-        const currentActive = m.activeVersionIndex ?? m.versionIndex ?? 0;
-        const latestIndex = m.versionIndex ?? 0;
+        const currentActive = m.activeVersionIndex ?? 0;
+        const maxIndex = m.versions.length - 1;
 
-        // Build full version list including the current latest
-        const fullList: MessageVersion[] = [
-          ...allVersions,
-          {
-            versionIndex: latestIndex,
-            text: m.text,
-            provider: m.provider,
-            model: m.model,
-            timestamp: m.timestamp,
-            ragUsed: m.ragUsed,
-          },
-        ].sort((a, b) => a.versionIndex - b.versionIndex);
-
-        const currentPos = fullList.findIndex(
-          (v) => v.versionIndex === currentActive,
-        );
-        const newPos =
+        const newActive =
           direction === "prev"
-            ? Math.max(0, currentPos - 1)
-            : Math.min(fullList.length - 1, currentPos + 1);
+            ? Math.max(0, currentActive - 1)
+            : Math.min(maxIndex, currentActive + 1);
 
-        const target = fullList[newPos];
+        if (newActive === currentActive) return m; // already at boundary
 
+        // Find the version snapshot for the new index
+        const target = m.versions.find((v) => v.versionIndex === newActive);
+        if (!target) return m;
+
+        // Sync root fields to the navigated version — versions[] is untouched
         return {
           ...m,
           text: target.text,
@@ -165,7 +166,7 @@ const useMessageStore = create<MessageStore>((set) => ({
           model: target.model,
           timestamp: target.timestamp,
           ragUsed: target.ragUsed,
-          activeVersionIndex: target.versionIndex,
+          activeVersionIndex: newActive,
         };
       });
 
@@ -200,10 +201,17 @@ const useMessageStore = create<MessageStore>((set) => ({
       timestamp: m.created_at,
       provider: m.provider,
       model: m.model,
-      versionGroupId: crypto.randomUUID(),
-      versionIndex: 0,
+      versions: [
+        {
+          versionIndex: 0,
+          text: m.content,
+          provider: m.provider,
+          model: m.model,
+          timestamp: m.created_at,
+        },
+      ],
       activeVersionIndex: 0,
-      allVersions: [],
+      totalVersions: 1,
     }));
     set({ messages: mapped });
   },

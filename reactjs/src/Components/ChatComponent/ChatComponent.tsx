@@ -1,12 +1,19 @@
 // reactjs/src/Components/ChatComponent/ChatComponent.tsx
 import { Button } from "primereact/button";
 import { useState, useEffect, useRef } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import useMessageStore from "../../Services/messageStore";
 import { sendMessage } from "../../Services/tulipApi";
 import useToastStore from "../../Services/toastStore";
 import RagConfirmCard from "./RagConfirmCard";
-import RetryPopover from "./RetryPopover";
-import { ModelOption } from "../../Services/constants";
+
+// FIX #4 — simple model label map for the retry popover
+const RETRY_MODELS = [
+  { provider: "local", model: "llama3.2", label: "Llama 3.2" },
+  { provider: "local", model: "mistral", label: "Mistral" },
+  { provider: "local", model: "gemma3", label: "Gemma 3" },
+];
 
 const ChatComponent = () => {
   const {
@@ -23,13 +30,34 @@ const ChatComponent = () => {
   const showToast = useToastStore((s) => s.showToast);
 
   const [newMessage, setNewMessage] = useState("");
+  const [retryMenuOpen, setRetryMenuOpen] = useState(false);
   const pendingUserText = useRef<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const retryMenuRef = useRef<HTMLDivElement>(null);
 
-  // Index of the last bot message — used to control retry visibility
-  const lastBotMsgId = [...messages]
-    .reverse()
-    .find((m) => m.type === "bot" && !m.isPendingConfirm)?.id;
+  // FIX #1 — only the last real bot message shows Retry, and only before any retry
+  const lastBotMessageId = (() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].type === "bot" && !messages[i].isPendingConfirm) {
+        return messages[i].id;
+      }
+    }
+    return null;
+  })();
+
+  // Close retry menu on outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        retryMenuRef.current &&
+        !retryMenuRef.current.contains(e.target as Node)
+      ) {
+        setRetryMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   const handleSendMessage = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -41,37 +69,49 @@ const ChatComponent = () => {
       text: userText,
       type: "user",
       timestamp: new Date().toISOString(),
+      versions: [
+        {
+          versionIndex: 0,
+          text: userText,
+          timestamp: new Date().toISOString(),
+        },
+      ],
+      activeVersionIndex: 0,
+      totalVersions: 1,
     });
     setNewMessage("");
     setIsLoading(true);
-    await dispatchChat(userText, undefined, undefined);
+    await dispatchChat(userText, undefined, undefined, false);
   };
 
-  // Unified dispatch — used for initial send, confirm/skip, AND retry
+  /**
+   * Unified dispatch for all send paths:
+   * - isRetry=false → addMessage (new bubble)
+   * - isRetry=true  → replaceLastBotMessage (in-place, keeps history)
+   */
   const dispatchChat = async (
     userText: string,
     confirmToken: string | undefined,
-    modelOverride: ModelOption | undefined,
+    modelOverride: { provider: string; model: string } | undefined,
+    isRetry: boolean,
   ) => {
-    const provider = modelOverride?.provider ?? config.provider;
-    const model = modelOverride?.model ?? config.model;
-
     try {
       const res = await sendMessage({
         messages: [{ role: "user", content: userText }],
         session_id: sessionId ?? undefined,
-        provider,
-        model,
+        provider: modelOverride?.provider ?? config.provider,
+        model: modelOverride?.model ?? config.model,
         temperature: config.temperature,
         max_tokens: config.max_tokens,
-        rag_mode: config.ragMode,
+        // FIX #5 — retry always uses auto so RAG fires silently without a confirm card
+        rag_mode: isRetry ? "auto" : config.ragMode,
         confirm_token: confirmToken,
       });
 
       if (!sessionId) setSessionId(res.session_id);
 
-      // ── RAG confirm pause ────────────────────────────────────────────
-      if (res.status === "rag_confirm" && res.rag_chunks) {
+      // ── RAG confirm pause (only on non-retry sends) ───────────────────
+      if (!isRetry && res.status === "rag_confirm" && res.rag_chunks) {
         pendingUserText.current = userText;
         addMessage({
           id: Date.now() + 1,
@@ -86,85 +126,43 @@ const ChatComponent = () => {
         return;
       }
 
-      // ── Normal response (initial send) ───────────────────────────────
-      if (!modelOverride) {
+      const botMsg = {
+        text: res.content ?? "",
+        provider: res.provider,
+        model: res.model,
+        timestamp: new Date().toISOString(),
+        ragUsed: res.rag_used,
+      };
+
+      if (isRetry) {
+        // FIX #3 — replace in-place, the loading indicator is the existing stub message
+        replaceLastBotMessage(botMsg);
+      } else {
         addMessage({
           id: Date.now() + 1,
-          text: res.content ?? "",
           type: "bot",
-          timestamp: new Date().toISOString(),
-          provider: res.provider,
-          model: res.model,
-          ragUsed: res.rag_used,
-          versionGroupId: crypto.randomUUID(),
-          versionIndex: 0,
+          versions: [{ versionIndex: 0, ...botMsg }],
           activeVersionIndex: 0,
-          allVersions: [],
-        });
-      } else {
-        // ── Retry response — replace in place, preserve history ──────────
-        replaceLastBotMessage({
-          id: Date.now() + 1,
-          text: res.content ?? "",
-          type: "bot",
-          timestamp: new Date().toISOString(),
-          provider: res.provider,
-          model: res.model,
-          ragUsed: res.rag_used,
+          totalVersions: 1,
+          ...botMsg,
         });
       }
     } catch (err: any) {
       showToast("error", "Gateway Error", err.message ?? "Request failed");
     } finally {
       setIsLoading(false);
+      setRetryMenuOpen(false);
     }
   };
 
-  // Retry: re-sends the last user message with an optional model override
-  const handleRetry = async (modelOverride: ModelOption) => {
+  const handleRetry = async (provider: string, model: string) => {
     if (isLoading) return;
-    // Find the last user message text
     const lastUserMsg = [...messages].reverse().find((m) => m.type === "user");
     if (!lastUserMsg) return;
-
     setIsLoading(true);
-
-    // If the current last bot response used RAG, re-trigger it silently (auto mode for retry)
-    const lastBotMsg = [...messages]
-      .reverse()
-      .find((m) => m.type === "bot" && !m.isPendingConfirm);
-    const retryRagMode = lastBotMsg?.ragUsed ? "auto" : "off";
-
-    try {
-      const res = await sendMessage({
-        messages: [{ role: "user", content: lastUserMsg.text }],
-        session_id: sessionId ?? undefined,
-        provider: modelOverride.provider,
-        model: modelOverride.model,
-        temperature: config.temperature,
-        max_tokens: config.max_tokens,
-        rag_mode: retryRagMode,
-      });
-
-      if (!sessionId) setSessionId(res.session_id);
-
-      replaceLastBotMessage({
-        id: Date.now() + 1,
-        text: res.content ?? "",
-        type: "bot",
-        timestamp: new Date().toISOString(),
-        provider: res.provider,
-        model: res.model,
-        ragUsed: res.rag_used,
-      });
-    } catch (err: any) {
-      showToast("error", "Retry Failed", err.message ?? "Request failed");
-    } finally {
-      setIsLoading(false);
-    }
+    await dispatchChat(lastUserMsg.text, undefined, { provider, model }, true);
   };
 
-  // RAG confirm / skip handlers (unchanged logic, just updated to pass modelOverride: undefined)
   const handleRagConfirm = async (
     messageId: string | number,
     confirmToken: string,
@@ -174,7 +172,7 @@ const ChatComponent = () => {
       messages: state.messages.filter((m) => m.id !== messageId),
     }));
     setIsLoading(true);
-    await dispatchChat(pendingUserText.current, confirmToken, undefined);
+    await dispatchChat(pendingUserText.current, confirmToken, undefined, false);
     pendingUserText.current = null;
   };
 
@@ -195,18 +193,20 @@ const ChatComponent = () => {
         rag_mode: "off",
       });
       if (!sessionId) setSessionId(res.session_id);
-      addMessage({
-        id: Date.now() + 1,
+      const botMsg = {
         text: res.content ?? "",
-        type: "bot",
-        timestamp: new Date().toISOString(),
         provider: res.provider,
         model: res.model,
+        timestamp: new Date().toISOString(),
         ragUsed: false,
-        versionGroupId: crypto.randomUUID(),
-        versionIndex: 0,
+      };
+      addMessage({
+        id: Date.now() + 1,
+        type: "bot",
+        versions: [{ versionIndex: 0, ...botMsg }],
         activeVersionIndex: 0,
-        allVersions: [],
+        totalVersions: 1,
+        ...botMsg,
       });
     } catch (err: any) {
       showToast("error", "Gateway Error", err.message ?? "Request failed");
@@ -224,7 +224,6 @@ const ChatComponent = () => {
     <div className="chat-container bg-color3 h-full flex flex-col">
       <div className="messages-list p-3 overflow-auto flex-1 mb-4">
         {messages?.map((message, key) => {
-          // ── RAG confirm card ──────────────────────────────────────────
           if (message.isPendingConfirm && message.ragChunks) {
             return (
               <RagConfirmCard
@@ -239,30 +238,16 @@ const ChatComponent = () => {
             );
           }
 
-          // ── Message bubble ────────────────────────────────────────────
           const isLastBot =
-            message.type === "bot" && message.id === lastBotMsgId;
-          const hasVersions =
-            message.type === "bot" && (message.allVersions?.length ?? 0) > 0;
-          const activeIdx =
-            message.activeVersionIndex ?? message.versionIndex ?? 0;
-          const latestIdx = message.versionIndex ?? 0;
+            message.type === "bot" && message.id === lastBotMessageId;
+          // FIX #6 — version nav reads from versions[] array, activeVersionIndex is the pointer
+          const hasVersions = (message.totalVersions ?? 1) > 1;
+          const activeIdx = message.activeVersionIndex ?? 0;
+          const totalVers = message.totalVersions ?? 1;
 
-          // Build the full sorted version list for navigation count
-          const totalVersions = hasVersions
-            ? (message.allVersions?.length ?? 0) + 1
-            : 1;
-          // Position within versions (1-based for display)
-          const displayPos = hasVersions
-            ? (message.allVersions ?? [])
-                .concat({
-                  versionIndex: latestIdx,
-                  text: "",
-                  timestamp: "",
-                })
-                .sort((a, b) => a.versionIndex - b.versionIndex)
-                .findIndex((v) => v.versionIndex === activeIdx) + 1
-            : 1;
+          // FIX #1 — Retry only shows on last bot message AND only when not yet retried
+          // (once totalVersions > 1, version arrows replace the retry button)
+          const showRetry = isLastBot && !hasVersions && !isLoading;
 
           return (
             <div
@@ -314,61 +299,108 @@ const ChatComponent = () => {
                     {message.type === "bot" ? "Tulip" : "You"}
                   </strong>
 
-                  <p className="break-words font-content">{message.text}</p>
+                  {/* FIX #4 — Markdown rendering */}
+                  <div
+                    className="message-body font-content break-words prose prose-sm max-w-none
+                    prose-headings:font-subheading prose-headings:text-color5
+                    prose-p:text-color5 prose-li:text-color5
+                    prose-strong:text-color5 prose-code:text-color1
+                    prose-code:bg-color3 prose-code:px-1 prose-code:rounded
+                    prose-pre:bg-color3 prose-pre:border prose-pre:border-color1
+                    prose-table:text-color5 prose-th:border prose-th:border-color1
+                    prose-th:bg-color3 prose-td:border prose-td:border-color1"
+                  >
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {message.text}
+                    </ReactMarkdown>
+                  </div>
 
-                  {/* ── Footer row ──────────────────────────────────── */}
-                  <div className="flex items-center justify-between mt-1 gap-2 flex-wrap">
-                    {/* Left side: version nav (bot only, when history exists) */}
-                    <div className="flex items-center gap-1.5">
-                      {message.type === "bot" && hasVersions && (
-                        <div className="flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => navigateVersion(message.id, "prev")}
-                            disabled={displayPos === 1}
-                            className="w-5 h-5 flex items-center justify-center rounded hover:bg-color3 disabled:opacity-30 transition-opacity"
-                            aria-label="Previous version"
-                          >
-                            <i className="pi pi-chevron-left text-[10px]" />
-                          </button>
-                          <span className="text-xs font-subheading opacity-50 tabular-nums">
-                            {displayPos}/{totalVersions}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => navigateVersion(message.id, "next")}
-                            disabled={displayPos === totalVersions}
-                            className="w-5 h-5 flex items-center justify-center rounded hover:bg-color3 disabled:opacity-30 transition-opacity"
-                            aria-label="Next version"
-                          >
-                            <i className="pi pi-chevron-right text-[10px]" />
-                          </button>
-                        </div>
-                      )}
-                      <small className="text-color1 font-subheading">
-                        {new Date(message.timestamp)?.toLocaleTimeString()}
-                      </small>
-                    </div>
+                  {/* Footer: timestamp + badges + version nav + retry */}
+                  <div className="flex items-center justify-between mt-1 flex-wrap gap-y-1">
+                    <small className="text-color1 font-subheading">
+                      {new Date(message.timestamp)?.toLocaleTimeString()}
+                    </small>
 
-                    {/* Right side: RAG badge + model badge + retry */}
                     <div className="flex items-center gap-2 flex-wrap">
+                      {/* RAG badge */}
                       {message.type === "bot" && message.ragUsed && (
                         <small className="text-color1 font-subheading bg-color3 px-1.5 py-0.5 rounded text-xs">
                           📄 From your docs
                         </small>
                       )}
+
+                      {/* Model badge */}
                       {message.type === "bot" && message.model && (
                         <small className="text-color1 font-subheading opacity-60">
                           {message.model}
                         </small>
                       )}
-                      {/* Retry — only on last bot message */}
-                      {isLastBot && (
-                        <RetryPopover
-                          currentModel={message.model ?? config.model}
-                          isLoading={isLoading}
-                          onRetry={handleRetry}
-                        />
+
+                      {/* FIX #6 — Version navigation arrows (appear once retried) */}
+                      {message.type === "bot" && hasVersions && (
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            disabled={activeIdx === 0}
+                            onClick={() => navigateVersion(message.id, "prev")}
+                            className="p-0.5 rounded disabled:opacity-30 hover:bg-color3 transition-colors"
+                            aria-label="Previous version"
+                          >
+                            <i className="pi pi-chevron-left text-xs text-color1" />
+                          </button>
+                          <small className="text-color1 font-subheading opacity-60 tabular-nums">
+                            {activeIdx + 1}/{totalVers}
+                          </small>
+                          <button
+                            type="button"
+                            disabled={activeIdx === totalVers - 1}
+                            onClick={() => navigateVersion(message.id, "next")}
+                            className="p-0.5 rounded disabled:opacity-30 hover:bg-color3 transition-colors"
+                            aria-label="Next version"
+                          >
+                            <i className="pi pi-chevron-right text-xs text-color1" />
+                          </button>
+                        </div>
+                      )}
+
+                      {/* FIX #1 — Retry button: only last bot message, only before first retry */}
+                      {showRetry && (
+                        <div className="relative" ref={retryMenuRef}>
+                          <button
+                            type="button"
+                            onClick={() => setRetryMenuOpen((v) => !v)}
+                            className="flex items-center gap-1 text-xs text-color1 font-subheading opacity-50 hover:opacity-100 transition-opacity"
+                            aria-label="Retry response"
+                          >
+                            <i className="pi pi-refresh text-xs" />
+                            <span>Retry</span>
+                          </button>
+
+                          {/* FIX #3 — Inline dropdown, no extra libs needed */}
+                          {retryMenuOpen && (
+                            <div className="absolute bottom-full right-0 mb-1 bg-color2 border border-color1 rounded-md shadow-lg z-20 min-w-[140px] py-1">
+                              <p className="text-xs font-subheading opacity-50 px-3 py-1">
+                                Retry with
+                              </p>
+                              {RETRY_MODELS.map((m) => (
+                                <button
+                                  key={m.model}
+                                  type="button"
+                                  onClick={() =>
+                                    handleRetry(m.provider, m.model)
+                                  }
+                                  className={`w-full text-left px-3 py-1.5 text-sm font-content hover:bg-color3 transition-colors flex items-center justify-between
+                                    ${config.model === m.model ? "text-color1 font-semibold" : "text-color5"}`}
+                                >
+                                  <span>{m.label}</span>
+                                  {config.model === m.model && (
+                                    <i className="pi pi-check text-xs" />
+                                  )}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       )}
                     </div>
                   </div>

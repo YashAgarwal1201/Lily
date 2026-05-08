@@ -128,8 +128,8 @@ const Header = () => {
 
       {/* Session list — simple inline dropdown under the history button */}
       {sessions.length > 0 && (
-        <div className="absolute left-[70px] top-0 md:left-auto md:top-auto md:right-0 z-50 w-64 bg-color2 shadow-lg rounded-md p-2 flex flex-col gap-1">
-          <div className="flex justify-between items-center mb-1 px-1">
+        <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-2xl max-h-[80%] overflow-y-auto bg-color2 shadow-lg rounded-md flex flex-col gap-1">
+          <div className="sticky top-0 bg-color2 flex justify-between items-center mb-1 p-2">
             <span className="font-subheading text-sm text-color5">
               Recent Sessions
             </span>
@@ -146,7 +146,7 @@ const Header = () => {
                 handleSwitchSession(s.id);
                 setSessions([]);
               }}
-              className={`text-left text-sm font-content px-2 py-1 rounded-md transition-colors ${
+              className={`text-left text-sm font-content mx-2 px-2 py-1 rounded-md transition-colors ${
                 s.id === sessionId
                   ? "bg-color4 text-color5"
                   : "bg-color3 text-color5 hover:bg-color4"

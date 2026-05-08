@@ -1,7 +1,7 @@
 // reactjs/src/Services/interfacesAndTypes.ts
 
 export type MessageVersion = {
-  versionIndex: number;
+  versionIndex: number; // 0 = original, 1 = first retry, 2 = second retry
   text: string;
   provider?: string;
   model?: string;
@@ -11,21 +11,19 @@ export type MessageVersion = {
 
 export type Message = {
   id: string | number;
-  text: string;
+  text: string; // always mirrors versions[activeVersionIndex].text — display source of truth
   type: "user" | "bot";
   timestamp: string;
   provider?: string;
   model?: string;
-  // RAG
   ragUsed?: boolean;
   isPendingConfirm?: boolean;
   confirmToken?: string;
   ragChunks?: RagChunk[];
-  // ── Retry / version history ──────────────────────────────────────
-  versionGroupId?: string; // shared UUID across all versions of this response slot
-  versionIndex?: number; // 0-based index of this version (0 = first response)
-  activeVersionIndex?: number; // which version is currently displayed (starts at versionIndex)
-  allVersions?: MessageVersion[]; // up to 3 past versions stored here
+  // ── Version history ───────────────────────────────────────────────────
+  versions?: MessageVersion[]; // ALL versions, immutable once written
+  activeVersionIndex?: number; // which version is currently displayed
+  totalVersions?: number; // versions.length — avoids recomputing
 };
 
 export interface FeedbackFormType {
