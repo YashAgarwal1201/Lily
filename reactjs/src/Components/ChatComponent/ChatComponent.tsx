@@ -5,11 +5,15 @@ import useMessageStore from "../../Services/messageStore";
 import { sendMessage } from "../../Services/tulipApi";
 import useToastStore from "../../Services/toastStore";
 import RagConfirmCard from "./RagConfirmCard";
+import RetryPopover from "./RetryPopover";
+import { ModelOption } from "../../Services/constants";
 
 const ChatComponent = () => {
   const {
     messages,
     addMessage,
+    replaceLastBotMessage,
+    navigateVersion,
     sessionId,
     setSessionId,
     config,
@@ -19,42 +23,45 @@ const ChatComponent = () => {
   const showToast = useToastStore((s) => s.showToast);
 
   const [newMessage, setNewMessage] = useState("");
-  // Holds the original user text during a pending rag_confirm so we
-  // can re-send it when the user confirms
   const pendingUserText = useRef<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Index of the last bot message — used to control retry visibility
+  const lastBotMsgId = [...messages]
+    .reverse()
+    .find((m) => m.type === "bot" && !m.isPendingConfirm)?.id;
 
   const handleSendMessage = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!newMessage.trim() || isLoading) return;
 
     const userText = newMessage;
-
-    const userMessage = {
+    addMessage({
       id: Date.now(),
       text: userText,
-      type: "user" as const,
+      type: "user",
       timestamp: new Date().toISOString(),
-    };
-
-    addMessage(userMessage);
+    });
     setNewMessage("");
     setIsLoading(true);
-
-    await dispatchChat(userText, undefined);
+    await dispatchChat(userText, undefined, undefined);
   };
 
-  // Unified dispatch — used for both initial send and confirm/skip follow-ups
+  // Unified dispatch — used for initial send, confirm/skip, AND retry
   const dispatchChat = async (
     userText: string,
     confirmToken: string | undefined,
+    modelOverride: ModelOption | undefined,
   ) => {
+    const provider = modelOverride?.provider ?? config.provider;
+    const model = modelOverride?.model ?? config.model;
+
     try {
       const res = await sendMessage({
         messages: [{ role: "user", content: userText }],
         session_id: sessionId ?? undefined,
-        provider: config.provider,
-        model: config.model,
+        provider,
+        model,
         temperature: config.temperature,
         max_tokens: config.max_tokens,
         rag_mode: config.ragMode,
@@ -63,12 +70,9 @@ const ChatComponent = () => {
 
       if (!sessionId) setSessionId(res.session_id);
 
-      // ── RAG confirm pause ─────────────────────────────────────────────
+      // ── RAG confirm pause ────────────────────────────────────────────
       if (res.status === "rag_confirm" && res.rag_chunks) {
-        // Store pending user text so confirm handler can re-send it
         pendingUserText.current = userText;
-
-        // Add a special "pending confirm" message — RagConfirmCard renders it
         addMessage({
           id: Date.now() + 1,
           text: "",
@@ -78,13 +82,73 @@ const ChatComponent = () => {
           confirmToken: res.confirm_token ?? undefined,
           ragChunks: res.rag_chunks,
         });
-
         setIsLoading(false);
         return;
       }
 
-      // ── Normal response ───────────────────────────────────────────────
-      addMessage({
+      // ── Normal response (initial send) ───────────────────────────────
+      if (!modelOverride) {
+        addMessage({
+          id: Date.now() + 1,
+          text: res.content ?? "",
+          type: "bot",
+          timestamp: new Date().toISOString(),
+          provider: res.provider,
+          model: res.model,
+          ragUsed: res.rag_used,
+          versionGroupId: crypto.randomUUID(),
+          versionIndex: 0,
+          activeVersionIndex: 0,
+          allVersions: [],
+        });
+      } else {
+        // ── Retry response — replace in place, preserve history ──────────
+        replaceLastBotMessage({
+          id: Date.now() + 1,
+          text: res.content ?? "",
+          type: "bot",
+          timestamp: new Date().toISOString(),
+          provider: res.provider,
+          model: res.model,
+          ragUsed: res.rag_used,
+        });
+      }
+    } catch (err: any) {
+      showToast("error", "Gateway Error", err.message ?? "Request failed");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Retry: re-sends the last user message with an optional model override
+  const handleRetry = async (modelOverride: ModelOption) => {
+    if (isLoading) return;
+    // Find the last user message text
+    const lastUserMsg = [...messages].reverse().find((m) => m.type === "user");
+    if (!lastUserMsg) return;
+
+    setIsLoading(true);
+
+    // If the current last bot response used RAG, re-trigger it silently (auto mode for retry)
+    const lastBotMsg = [...messages]
+      .reverse()
+      .find((m) => m.type === "bot" && !m.isPendingConfirm);
+    const retryRagMode = lastBotMsg?.ragUsed ? "auto" : "off";
+
+    try {
+      const res = await sendMessage({
+        messages: [{ role: "user", content: lastUserMsg.text }],
+        session_id: sessionId ?? undefined,
+        provider: modelOverride.provider,
+        model: modelOverride.model,
+        temperature: config.temperature,
+        max_tokens: config.max_tokens,
+        rag_mode: retryRagMode,
+      });
+
+      if (!sessionId) setSessionId(res.session_id);
+
+      replaceLastBotMessage({
         id: Date.now() + 1,
         text: res.content ?? "",
         type: "bot",
@@ -94,39 +158,32 @@ const ChatComponent = () => {
         ragUsed: res.rag_used,
       });
     } catch (err: any) {
-      showToast("error", "Gateway Error", err.message ?? "Request failed");
+      showToast("error", "Retry Failed", err.message ?? "Request failed");
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Called when user clicks "Use my docs" on a RagConfirmCard
+  // RAG confirm / skip handlers (unchanged logic, just updated to pass modelOverride: undefined)
   const handleRagConfirm = async (
     messageId: string | number,
     confirmToken: string,
   ) => {
     if (!pendingUserText.current || isLoading) return;
-
-    // Remove the confirm card message from the list
     useMessageStore.setState((state) => ({
       messages: state.messages.filter((m) => m.id !== messageId),
     }));
-
     setIsLoading(true);
-    await dispatchChat(pendingUserText.current, confirmToken);
+    await dispatchChat(pendingUserText.current, confirmToken, undefined);
     pendingUserText.current = null;
   };
 
-  // Called when user clicks "Skip" — re-sends without token (rag_mode off for this turn)
   const handleRagSkip = async (messageId: string | number) => {
     if (!pendingUserText.current || isLoading) return;
-
     useMessageStore.setState((state) => ({
       messages: state.messages.filter((m) => m.id !== messageId),
     }));
-
     setIsLoading(true);
-
     try {
       const res = await sendMessage({
         messages: [{ role: "user", content: pendingUserText.current! }],
@@ -135,11 +192,9 @@ const ChatComponent = () => {
         model: config.model,
         temperature: config.temperature,
         max_tokens: config.max_tokens,
-        rag_mode: "off", // skip: force off for this single turn only
+        rag_mode: "off",
       });
-
       if (!sessionId) setSessionId(res.session_id);
-
       addMessage({
         id: Date.now() + 1,
         text: res.content ?? "",
@@ -148,6 +203,10 @@ const ChatComponent = () => {
         provider: res.provider,
         model: res.model,
         ragUsed: false,
+        versionGroupId: crypto.randomUUID(),
+        versionIndex: 0,
+        activeVersionIndex: 0,
+        allVersions: [],
       });
     } catch (err: any) {
       showToast("error", "Gateway Error", err.message ?? "Request failed");
@@ -165,7 +224,7 @@ const ChatComponent = () => {
     <div className="chat-container bg-color3 h-full flex flex-col">
       <div className="messages-list p-3 overflow-auto flex-1 mb-4">
         {messages?.map((message, key) => {
-          // ── RAG confirm card ────────────────────────────────────────
+          // ── RAG confirm card ──────────────────────────────────────────
           if (message.isPendingConfirm && message.ragChunks) {
             return (
               <RagConfirmCard
@@ -180,7 +239,31 @@ const ChatComponent = () => {
             );
           }
 
-          // ── Normal message bubble ───────────────────────────────────
+          // ── Message bubble ────────────────────────────────────────────
+          const isLastBot =
+            message.type === "bot" && message.id === lastBotMsgId;
+          const hasVersions =
+            message.type === "bot" && (message.allVersions?.length ?? 0) > 0;
+          const activeIdx =
+            message.activeVersionIndex ?? message.versionIndex ?? 0;
+          const latestIdx = message.versionIndex ?? 0;
+
+          // Build the full sorted version list for navigation count
+          const totalVersions = hasVersions
+            ? (message.allVersions?.length ?? 0) + 1
+            : 1;
+          // Position within versions (1-based for display)
+          const displayPos = hasVersions
+            ? (message.allVersions ?? [])
+                .concat({
+                  versionIndex: latestIdx,
+                  text: "",
+                  timestamp: "",
+                })
+                .sort((a, b) => a.versionIndex - b.versionIndex)
+                .findIndex((v) => v.versionIndex === activeIdx) + 1
+            : 1;
+
           return (
             <div
               key={key}
@@ -210,12 +293,12 @@ const ChatComponent = () => {
                   className={`h-full w-[16px] bg-color3 ${
                     message.type === "bot" ? "rounded-tr-xl" : "rounded-tl-xl"
                   }`}
-                ></div>
+                />
                 <div
                   className={`absolute ${
                     message.type === "bot" ? "right-0" : "left-0"
                   } w-[calc(100%-16px)] h-full bg-color3`}
-                ></div>
+                />
                 <div
                   className={`message w-[calc(100%-16px)] h-full z-10 p-2 shadow-sm ${
                     message.type === "bot"
@@ -230,23 +313,62 @@ const ChatComponent = () => {
                   >
                     {message.type === "bot" ? "Tulip" : "You"}
                   </strong>
+
                   <p className="break-words font-content">{message.text}</p>
-                  <div className="flex items-center justify-between mt-1">
-                    <small className="text-color1 font-subheading">
-                      {new Date(message.timestamp)?.toLocaleTimeString()}
-                    </small>
-                    <div className="flex items-center gap-2">
-                      {/* RAG badge */}
+
+                  {/* ── Footer row ──────────────────────────────────── */}
+                  <div className="flex items-center justify-between mt-1 gap-2 flex-wrap">
+                    {/* Left side: version nav (bot only, when history exists) */}
+                    <div className="flex items-center gap-1.5">
+                      {message.type === "bot" && hasVersions && (
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => navigateVersion(message.id, "prev")}
+                            disabled={displayPos === 1}
+                            className="w-5 h-5 flex items-center justify-center rounded hover:bg-color3 disabled:opacity-30 transition-opacity"
+                            aria-label="Previous version"
+                          >
+                            <i className="pi pi-chevron-left text-[10px]" />
+                          </button>
+                          <span className="text-xs font-subheading opacity-50 tabular-nums">
+                            {displayPos}/{totalVersions}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => navigateVersion(message.id, "next")}
+                            disabled={displayPos === totalVersions}
+                            className="w-5 h-5 flex items-center justify-center rounded hover:bg-color3 disabled:opacity-30 transition-opacity"
+                            aria-label="Next version"
+                          >
+                            <i className="pi pi-chevron-right text-[10px]" />
+                          </button>
+                        </div>
+                      )}
+                      <small className="text-color1 font-subheading">
+                        {new Date(message.timestamp)?.toLocaleTimeString()}
+                      </small>
+                    </div>
+
+                    {/* Right side: RAG badge + model badge + retry */}
+                    <div className="flex items-center gap-2 flex-wrap">
                       {message.type === "bot" && message.ragUsed && (
                         <small className="text-color1 font-subheading bg-color3 px-1.5 py-0.5 rounded text-xs">
                           📄 From your docs
                         </small>
                       )}
-                      {/* Model badge */}
                       {message.type === "bot" && message.model && (
                         <small className="text-color1 font-subheading opacity-60">
                           {message.model}
                         </small>
+                      )}
+                      {/* Retry — only on last bot message */}
+                      {isLastBot && (
+                        <RetryPopover
+                          currentModel={message.model ?? config.model}
+                          isLoading={isLoading}
+                          onRetry={handleRetry}
+                        />
                       )}
                     </div>
                   </div>

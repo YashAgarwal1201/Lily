@@ -1,6 +1,14 @@
 // reactjs/src/Services/interfacesAndTypes.ts
 
-// ── Existing (keep) ───────────────────────────────────────────────────────
+export type MessageVersion = {
+  versionIndex: number;
+  text: string;
+  provider?: string;
+  model?: string;
+  timestamp: string;
+  ragUsed?: boolean;
+};
+
 export type Message = {
   id: string | number;
   text: string;
@@ -8,11 +16,16 @@ export type Message = {
   timestamp: string;
   provider?: string;
   model?: string;
-  // RAG additions
-  ragUsed?: boolean; // true if this bot message used doc context
-  isPendingConfirm?: boolean; // true if this is a rag_confirm pause message
-  confirmToken?: string; // stored so user can confirm from the message
-  ragChunks?: RagChunk[]; // chunk previews shown in the confirm card
+  // RAG
+  ragUsed?: boolean;
+  isPendingConfirm?: boolean;
+  confirmToken?: string;
+  ragChunks?: RagChunk[];
+  // ── Retry / version history ──────────────────────────────────────
+  versionGroupId?: string; // shared UUID across all versions of this response slot
+  versionIndex?: number; // 0-based index of this version (0 = first response)
+  activeVersionIndex?: number; // which version is currently displayed (starts at versionIndex)
+  allVersions?: MessageVersion[]; // up to 3 past versions stored here
 };
 
 export interface FeedbackFormType {
@@ -21,7 +34,6 @@ export interface FeedbackFormType {
   message: string;
 }
 
-// ── Existing new ──────────────────────────────────────────────────────────
 export type Session = {
   id: string;
   title: string | null;
@@ -34,7 +46,7 @@ export type ChatConfig = {
   model: string;
   temperature: number;
   max_tokens: number;
-  ragMode: "off" | "ask" | "auto"; // ← new
+  ragMode: "off" | "ask" | "auto";
 };
 
 export type TulipChatRequest = {
@@ -45,8 +57,8 @@ export type TulipChatRequest = {
   task_type?: string;
   temperature?: number;
   max_tokens?: number;
-  rag_mode?: "off" | "ask" | "auto"; // ← new
-  confirm_token?: string; // ← new
+  rag_mode?: "off" | "ask" | "auto";
+  confirm_token?: string;
 };
 
 export type TulipChatResponse = {
@@ -55,13 +67,12 @@ export type TulipChatResponse = {
   provider: string;
   model: string;
   use_memory: boolean;
-  status: "ok" | "rag_confirm"; // ← new
-  rag_used: boolean; // ← new
-  rag_chunks: RagChunk[] | null; // ← new
-  confirm_token: string | null; // ← new
+  status: "ok" | "rag_confirm";
+  rag_used: boolean;
+  rag_chunks: RagChunk[] | null;
+  confirm_token: string | null;
 };
 
-// ── RAG ───────────────────────────────────────────────────────────────────
 export type RagChunk = {
   source: string;
   score: number;
