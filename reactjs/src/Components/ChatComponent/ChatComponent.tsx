@@ -1,19 +1,20 @@
 // reactjs/src/Components/ChatComponent/ChatComponent.tsx
 import { Button } from "primereact/button";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import useMessageStore from "../../Services/messageStore";
-import { sendMessage } from "../../Services/tulipApi";
+import { sendMessage, ingestFiles } from "../../Services/tulipApi";
 import useToastStore from "../../Services/toastStore";
 import RagConfirmCard from "./RagConfirmCard";
 
-// FIX #4 — simple model label map for the retry popover
 const RETRY_MODELS = [
   { provider: "local", model: "llama3.2", label: "Llama 3.2" },
   { provider: "local", model: "mistral", label: "Mistral" },
   { provider: "local", model: "gemma3", label: "Gemma 3" },
 ];
+
+const ACCEPT_TYPES = ".pdf,.txt,.md,.docx,.xlsx,.csv,.pptx";
 
 const ChatComponent = () => {
   const {
@@ -31,11 +32,16 @@ const ChatComponent = () => {
 
   const [newMessage, setNewMessage] = useState("");
   const [retryMenuOpen, setRetryMenuOpen] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [uploading, setUploading] = useState(false);
+
   const pendingUserText = useRef<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const retryMenuRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const dragCounterRef = useRef(0); // tracks nested dragenter/dragleave pairs
 
-  // FIX #1 — only the last real bot message shows Retry, and only before any retry
+  // Only the last real bot message shows Retry
   const lastBotMessageId = (() => {
     for (let i = messages.length - 1; i >= 0; i--) {
       if (messages[i].type === "bot" && !messages[i].isPendingConfirm) {
@@ -59,6 +65,65 @@ const ChatComponent = () => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  // ── File upload (shared between paperclip button + drag-drop) ─────────────
+  const handleFileUpload = useCallback(
+    async (files: File[]) => {
+      if (!files.length || uploading) return;
+      setUploading(true);
+      try {
+        const result = await ingestFiles(files);
+        if (result.total_ingested > 0) {
+          showToast(
+            "success",
+            "Uploaded",
+            `${result.total_ingested} file${
+              result.total_ingested !== 1 ? "s" : ""
+            } added to knowledge base`,
+          );
+        }
+        result.errors.forEach((e) =>
+          showToast("warn", `Skipped: ${e.file}`, e.error),
+        );
+      } catch (err: any) {
+        showToast("error", "Upload Failed", err.message ?? "Unknown error");
+      } finally {
+        setUploading(false);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+      }
+    },
+    [uploading, showToast],
+  );
+
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    handleFileUpload(Array.from(e.target.files ?? []));
+  };
+
+  // ── Drag-drop handlers ────────────────────────────────────────────────────
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounterRef.current++;
+    if (e.dataTransfer.types.includes("Files")) setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounterRef.current--;
+    if (dragCounterRef.current === 0) setIsDragging(false);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault(); // required to allow drop
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounterRef.current = 0;
+    setIsDragging(false);
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length) handleFileUpload(files);
+  };
+
+  // ── Chat ──────────────────────────────────────────────────────────────────
   const handleSendMessage = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!newMessage.trim() || isLoading) return;
@@ -85,9 +150,9 @@ const ChatComponent = () => {
   };
 
   /**
-   * Unified dispatch for all send paths:
-   * - isRetry=false → addMessage (new bubble)
-   * - isRetry=true  → replaceLastBotMessage (in-place, keeps history)
+   * Unified dispatch for all send paths.
+   * isRetry=false → addMessage (new bubble)
+   * isRetry=true  → replaceLastBotMessage (in-place, keeps version history)
    */
   const dispatchChat = async (
     userText: string,
@@ -103,14 +168,14 @@ const ChatComponent = () => {
         model: modelOverride?.model ?? config.model,
         temperature: config.temperature,
         max_tokens: config.max_tokens,
-        // FIX #5 — retry always uses auto so RAG fires silently without a confirm card
+        // retry always uses auto so RAG fires silently without a confirm card
         rag_mode: isRetry ? "auto" : config.ragMode,
         confirm_token: confirmToken,
       });
 
       if (!sessionId) setSessionId(res.session_id);
 
-      // ── RAG confirm pause (only on non-retry sends) ───────────────────
+      // ── RAG confirm pause (non-retry sends only) ──────────────────────────
       if (!isRetry && res.status === "rag_confirm" && res.rag_chunks) {
         pendingUserText.current = userText;
         addMessage({
@@ -132,10 +197,10 @@ const ChatComponent = () => {
         model: res.model,
         timestamp: new Date().toISOString(),
         ragUsed: res.rag_used,
+        intent: res.intent ?? "general",
       };
 
       if (isRetry) {
-        // FIX #3 — replace in-place, the loading indicator is the existing stub message
         replaceLastBotMessage(botMsg);
       } else {
         addMessage({
@@ -148,6 +213,45 @@ const ChatComponent = () => {
         });
       }
     } catch (err: any) {
+      // ── 410: confirm token expired — re-trigger Phase 1 automatically ─────
+      if (
+        err.message?.includes("410") ||
+        err.message?.toLowerCase().includes("expired")
+      ) {
+        pendingUserText.current = userText;
+        showToast("info", "Session refreshed", "Re-scanning your documents...");
+        try {
+          const res = await sendMessage({
+            messages: [{ role: "user", content: userText }],
+            session_id: sessionId ?? undefined,
+            provider: modelOverride?.provider ?? config.provider,
+            model: modelOverride?.model ?? config.model,
+            temperature: config.temperature,
+            max_tokens: config.max_tokens,
+            rag_mode: config.ragMode, // no confirm_token → Phase 1 fires fresh
+          });
+          if (res.status === "rag_confirm" && res.rag_chunks) {
+            addMessage({
+              id: Date.now() + 1,
+              text: "",
+              type: "bot",
+              timestamp: new Date().toISOString(),
+              isPendingConfirm: true,
+              confirmToken: res.confirm_token ?? undefined,
+              ragChunks: res.rag_chunks,
+            });
+          }
+        } catch (retryErr: any) {
+          showToast(
+            "error",
+            "Gateway Error",
+            retryErr.message ?? "Request failed",
+          );
+        } finally {
+          setIsLoading(false);
+        }
+        return;
+      }
       showToast("error", "Gateway Error", err.message ?? "Request failed");
     } finally {
       setIsLoading(false);
@@ -199,6 +303,7 @@ const ChatComponent = () => {
         model: res.model,
         timestamp: new Date().toISOString(),
         ragUsed: false,
+        intent: res.intent ?? "general",
       };
       addMessage({
         id: Date.now() + 1,
@@ -221,7 +326,26 @@ const ChatComponent = () => {
   }, [messages]);
 
   return (
-    <div className="chat-container bg-color3 h-full flex flex-col">
+    <div
+      className="chat-container bg-color3 h-full flex flex-col relative"
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+    >
+      {/* Drag-drop overlay */}
+      {isDragging && (
+        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-color3 bg-opacity-90 border-2 border-dashed border-color1 rounded-lg pointer-events-none">
+          <i className="pi pi-cloud-upload text-color1 text-4xl mb-2" />
+          <p className="font-subheading text-color1 text-sm">
+            Drop files to add to knowledge base
+          </p>
+          <small className="font-subheading text-color1 opacity-50 mt-1">
+            PDF, DOCX, PPTX, XLSX, TXT, MD, CSV
+          </small>
+        </div>
+      )}
+
       <div className="messages-list p-3 overflow-auto flex-1 mb-4">
         {messages?.map((message, key) => {
           if (message.isPendingConfirm && message.ragChunks) {
@@ -240,13 +364,9 @@ const ChatComponent = () => {
 
           const isLastBot =
             message.type === "bot" && message.id === lastBotMessageId;
-          // FIX #6 — version nav reads from versions[] array, activeVersionIndex is the pointer
           const hasVersions = (message.totalVersions ?? 1) > 1;
           const activeIdx = message.activeVersionIndex ?? 0;
           const totalVers = message.totalVersions ?? 1;
-
-          // FIX #1 — Retry only shows on last bot message AND only when not yet retried
-          // (once totalVersions > 1, version arrows replace the retry button)
           const showRetry = isLastBot && !hasVersions && !isLoading;
 
           return (
@@ -299,7 +419,6 @@ const ChatComponent = () => {
                     {message.type === "bot" ? "Tulip" : "You"}
                   </strong>
 
-                  {/* FIX #4 — Markdown rendering */}
                   <div
                     className="message-body font-content break-words prose prose-sm max-w-none
                     prose-headings:font-subheading prose-headings:text-color5
@@ -322,6 +441,14 @@ const ChatComponent = () => {
                     </small>
 
                     <div className="flex items-center gap-2 flex-wrap">
+                      {/* Memory intent badge */}
+                      {message.type === "bot" &&
+                        message.intent === "memory" && (
+                          <small className="text-color1 font-subheading bg-color3 px-1.5 py-0.5 rounded text-xs">
+                            🧠 From memory
+                          </small>
+                        )}
+
                       {/* RAG badge */}
                       {message.type === "bot" && message.ragUsed && (
                         <small className="text-color1 font-subheading bg-color3 px-1.5 py-0.5 rounded text-xs">
@@ -336,7 +463,7 @@ const ChatComponent = () => {
                         </small>
                       )}
 
-                      {/* FIX #6 — Version navigation arrows (appear once retried) */}
+                      {/* Version navigation arrows */}
                       {message.type === "bot" && hasVersions && (
                         <div className="flex items-center gap-1">
                           <button
@@ -363,7 +490,7 @@ const ChatComponent = () => {
                         </div>
                       )}
 
-                      {/* FIX #1 — Retry button: only last bot message, only before first retry */}
+                      {/* Retry button: only last bot message, only before first retry */}
                       {showRetry && (
                         <div className="relative" ref={retryMenuRef}>
                           <button
@@ -376,7 +503,6 @@ const ChatComponent = () => {
                             <span>Retry</span>
                           </button>
 
-                          {/* FIX #3 — Inline dropdown, no extra libs needed */}
                           {retryMenuOpen && (
                             <div className="absolute bottom-full right-0 mb-1 bg-color2 border border-color1 rounded-md shadow-lg z-20 min-w-[140px] py-1">
                               <p className="text-xs font-subheading opacity-50 px-3 py-1">
@@ -429,10 +555,37 @@ const ChatComponent = () => {
         <div ref={messagesEndRef} />
       </div>
 
+      {/* Input bar: paperclip upload + text input + send */}
       <form
         onSubmit={handleSendMessage}
-        className="send-message-form flex gap-x-2"
+        className="send-message-form flex gap-x-2 items-center"
       >
+        {/* Hidden file input for paperclip */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          accept={ACCEPT_TYPES}
+          onChange={handleFileInputChange}
+          className="hidden"
+        />
+
+        {/* Paperclip upload button */}
+        <button
+          type="button"
+          disabled={uploading}
+          onClick={() => fileInputRef.current?.click()}
+          className="w-9 h-9 flex items-center justify-center rounded-full bg-color2 border-2 border-color1 text-color1 shrink-0 hover:bg-color1 hover:text-color2 transition-colors disabled:opacity-40"
+          aria-label="Upload file to knowledge base"
+          title="Upload file (PDF, DOCX, TXT, MD, CSV, XLSX, PPTX)"
+        >
+          {uploading ? (
+            <i className="pi pi-spinner pi-spin text-xs" />
+          ) : (
+            <i className="pi pi-paperclip text-xs" />
+          )}
+        </button>
+
         <input
           type="text"
           value={newMessage}

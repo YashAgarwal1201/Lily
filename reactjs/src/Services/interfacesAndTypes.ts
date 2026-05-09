@@ -7,6 +7,7 @@ export type MessageVersion = {
   model?: string;
   timestamp: string;
   ragUsed?: boolean;
+  intent?: string;
 };
 
 export type Message = {
@@ -17,6 +18,7 @@ export type Message = {
   provider?: string;
   model?: string;
   ragUsed?: boolean;
+  intent?: string; // ← new: 'memory' | 'document' | 'general'
   isPendingConfirm?: boolean;
   confirmToken?: string;
   ragChunks?: RagChunk[];
@@ -69,6 +71,7 @@ export type TulipChatResponse = {
   rag_used: boolean;
   rag_chunks: RagChunk[] | null;
   confirm_token: string | null;
+  intent: "memory" | "document" | "general"; // ← new
 };
 
 export type RagChunk = {

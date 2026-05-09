@@ -9,12 +9,17 @@ interface RagConfirmCardProps {
   isLoading: boolean;
 }
 
+const MAX_VISIBLE_CHUNKS = 3;
+
 const RagConfirmCard = ({
   chunks,
   onConfirm,
   onSkip,
   isLoading,
 }: RagConfirmCardProps) => {
+  const visible = chunks.slice(0, MAX_VISIBLE_CHUNKS);
+  const overflow = chunks.length - MAX_VISIBLE_CHUNKS;
+
   return (
     <div className="w-full flex flex-row gap-x-2 my-1">
       {/* Same avatar column spacing as bot messages */}
@@ -29,9 +34,9 @@ const RagConfirmCard = ({
           </span>
         </div>
 
-        {/* Chunk previews */}
+        {/* Chunk previews — max 3, hint if more */}
         <div className="flex flex-col gap-1">
-          {chunks.map((chunk, i) => (
+          {visible.map((chunk, i) => (
             <div
               key={i}
               className="bg-color3 rounded p-2 flex flex-col gap-0.5"
@@ -49,6 +54,11 @@ const RagConfirmCard = ({
               </p>
             </div>
           ))}
+          {overflow > 0 && (
+            <small className="font-subheading text-color1 opacity-40 pl-1">
+              +{overflow} more section{overflow !== 1 ? "s" : ""}
+            </small>
+          )}
         </div>
 
         {/* Action buttons */}
