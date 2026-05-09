@@ -7,12 +7,8 @@ import useMessageStore from "../../Services/messageStore";
 import { sendMessage, ingestFiles } from "../../Services/tulipApi";
 import useToastStore from "../../Services/toastStore";
 import RagConfirmCard from "./RagConfirmCard";
-
-const RETRY_MODELS = [
-  { provider: "local", model: "llama3.2", label: "Llama 3.2" },
-  { provider: "local", model: "mistral", label: "Mistral" },
-  { provider: "local", model: "gemma3", label: "Gemma 3" },
-];
+import RetryPopover from "./RetryPopover";
+import { ModelOption } from "../../Services/constants";
 
 const ACCEPT_TYPES = ".pdf,.txt,.md,.docx,.xlsx,.csv,.pptx";
 
@@ -31,57 +27,53 @@ const ChatComponent = () => {
   const showToast = useToastStore((s) => s.showToast);
 
   const [newMessage, setNewMessage] = useState("");
-  const [retryMenuOpen, setRetryMenuOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
 
   const pendingUserText = useRef<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const retryMenuRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const dragCounterRef = useRef(0); // tracks nested dragenter/dragleave pairs
+  const dragCounterRef = useRef(0);
 
-  // Only the last real bot message shows Retry
+  // Only the last real bot message shows Retry / version nav
   const lastBotMessageId = (() => {
     for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].type === "bot" && !messages[i].isPendingConfirm) {
+      if (messages[i].type === "bot" && !messages[i].isPendingConfirm)
         return messages[i].id;
-      }
     }
     return null;
   })();
 
-  // Close retry menu on outside click
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (
-        retryMenuRef.current &&
-        !retryMenuRef.current.contains(e.target as Node)
-      ) {
-        setRetryMenuOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
-  // ── File upload (shared between paperclip button + drag-drop) ─────────────
+  // ── File upload ───────────────────────────────────────────────────────────
   const handleFileUpload = useCallback(
     async (files: File[]) => {
       if (!files.length || uploading) return;
       setUploading(true);
       try {
         const result = await ingestFiles(files);
-        if (result.total_ingested > 0) {
-          showToast(
-            "success",
-            "Uploaded",
-            `${result.total_ingested} file${
-              result.total_ingested !== 1 ? "s" : ""
-            } added to knowledge base`,
-          );
-        }
-        result.errors.forEach((e) =>
+
+        // Inject a system-style confirmation bubble into chat for each file
+        result.ingested?.forEach((item: { file: string; chunks: number }) => {
+          addMessage({
+            id: Date.now() + Math.random(),
+            type: "bot",
+            text: `📎 **${item.file}** added to knowledge base — ${item.chunks} section${item.chunks !== 1 ? "s" : ""} indexed. You can now ask me questions about it.`,
+            timestamp: new Date().toISOString(),
+            ragUsed: false,
+            intent: "general",
+            versions: [
+              {
+                versionIndex: 0,
+                text: "",
+                timestamp: new Date().toISOString(),
+              },
+            ],
+            activeVersionIndex: 0,
+            totalVersions: 1,
+          });
+        });
+
+        result.errors?.forEach((e: { file: string; error: string }) =>
           showToast("warn", `Skipped: ${e.file}`, e.error),
         );
       } catch (err: any) {
@@ -91,14 +83,10 @@ const ChatComponent = () => {
         if (fileInputRef.current) fileInputRef.current.value = "";
       }
     },
-    [uploading, showToast],
+    [uploading, showToast, addMessage],
   );
 
-  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    handleFileUpload(Array.from(e.target.files ?? []));
-  };
-
-  // ── Drag-drop handlers ────────────────────────────────────────────────────
+  // ── Drag-drop ─────────────────────────────────────────────────────────────
   const handleDragEnter = (e: React.DragEvent) => {
     e.preventDefault();
     dragCounterRef.current++;
@@ -111,9 +99,7 @@ const ChatComponent = () => {
     if (dragCounterRef.current === 0) setIsDragging(false);
   };
 
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault(); // required to allow drop
-  };
+  const handleDragOver = (e: React.DragEvent) => e.preventDefault();
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
@@ -123,7 +109,7 @@ const ChatComponent = () => {
     if (files.length) handleFileUpload(files);
   };
 
-  // ── Chat ──────────────────────────────────────────────────────────────────
+  // ── Chat send ─────────────────────────────────────────────────────────────
   const handleSendMessage = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!newMessage.trim() || isLoading) return;
@@ -152,14 +138,26 @@ const ChatComponent = () => {
   /**
    * Unified dispatch for all send paths.
    * isRetry=false → addMessage (new bubble)
-   * isRetry=true  → replaceLastBotMessage (in-place, keeps version history)
+   * isRetry=true  → replaceLastBotMessage (in-place, preserves version history)
    */
   const dispatchChat = async (
     userText: string,
     confirmToken: string | undefined,
-    modelOverride: { provider: string; model: string } | undefined,
+    modelOverride: ModelOption | undefined,
     isRetry: boolean,
   ) => {
+    // For retry, grab the db_id of the last bot message before calling the API
+    let retryMessageDbId: number | undefined;
+    if (isRetry) {
+      const msgs = useMessageStore.getState().messages;
+      for (let i = msgs.length - 1; i >= 0; i--) {
+        if (msgs[i].type === "bot" && !msgs[i].isPendingConfirm) {
+          retryMessageDbId = msgs[i].db_id;
+          break;
+        }
+      }
+    }
+
     try {
       const res = await sendMessage({
         messages: [{ role: "user", content: userText }],
@@ -168,14 +166,14 @@ const ChatComponent = () => {
         model: modelOverride?.model ?? config.model,
         temperature: config.temperature,
         max_tokens: config.max_tokens,
-        // retry always uses auto so RAG fires silently without a confirm card
         rag_mode: isRetry ? "auto" : config.ragMode,
         confirm_token: confirmToken,
+        retry_message_id: retryMessageDbId, // ← tells backend to upsert
       });
 
       if (!sessionId) setSessionId(res.session_id);
 
-      // ── RAG confirm pause (non-retry sends only) ──────────────────────────
+      // RAG confirm pause (non-retry only)
       if (!isRetry && res.status === "rag_confirm" && res.rag_chunks) {
         pendingUserText.current = userText;
         addMessage({
@@ -197,7 +195,7 @@ const ChatComponent = () => {
         model: res.model,
         timestamp: new Date().toISOString(),
         ragUsed: res.rag_used,
-        intent: res.intent ?? "general",
+        intent: res.intent ?? ("general" as const),
       };
 
       if (isRetry) {
@@ -213,12 +211,11 @@ const ChatComponent = () => {
         });
       }
     } catch (err: any) {
-      // ── 410: confirm token expired — re-trigger Phase 1 automatically ─────
+      // 410: confirm token expired — silent re-trigger
       if (
         err.message?.includes("410") ||
         err.message?.toLowerCase().includes("expired")
       ) {
-        pendingUserText.current = userText;
         showToast("info", "Session refreshed", "Re-scanning your documents...");
         try {
           const res = await sendMessage({
@@ -228,9 +225,10 @@ const ChatComponent = () => {
             model: modelOverride?.model ?? config.model,
             temperature: config.temperature,
             max_tokens: config.max_tokens,
-            rag_mode: config.ragMode, // no confirm_token → Phase 1 fires fresh
+            rag_mode: config.ragMode,
           });
           if (res.status === "rag_confirm" && res.rag_chunks) {
+            pendingUserText.current = userText;
             addMessage({
               id: Date.now() + 1,
               text: "",
@@ -255,16 +253,15 @@ const ChatComponent = () => {
       showToast("error", "Gateway Error", err.message ?? "Request failed");
     } finally {
       setIsLoading(false);
-      setRetryMenuOpen(false);
     }
   };
 
-  const handleRetry = async (provider: string, model: string) => {
+  const handleRetry = async (model: ModelOption) => {
     if (isLoading) return;
     const lastUserMsg = [...messages].reverse().find((m) => m.type === "user");
     if (!lastUserMsg) return;
     setIsLoading(true);
-    await dispatchChat(lastUserMsg.text, undefined, { provider, model }, true);
+    await dispatchChat(lastUserMsg.text, undefined, model, true);
   };
 
   const handleRagConfirm = async (
@@ -303,7 +300,7 @@ const ChatComponent = () => {
         model: res.model,
         timestamp: new Date().toISOString(),
         ragUsed: false,
-        intent: res.intent ?? "general",
+        intent: res.intent ?? ("general" as const),
       };
       addMessage({
         id: Date.now() + 1,
@@ -348,6 +345,7 @@ const ChatComponent = () => {
 
       <div className="messages-list p-3 overflow-auto flex-1 mb-4">
         {messages?.map((message, key) => {
+          // RAG confirm card
           if (message.isPendingConfirm && message.ragChunks) {
             return (
               <RagConfirmCard
@@ -367,6 +365,7 @@ const ChatComponent = () => {
           const hasVersions = (message.totalVersions ?? 1) > 1;
           const activeIdx = message.activeVersionIndex ?? 0;
           const totalVers = message.totalVersions ?? 1;
+          // Retry popover only appears on last bot bubble, before first retry
           const showRetry = isLastBot && !hasVersions && !isLoading;
 
           return (
@@ -379,7 +378,7 @@ const ChatComponent = () => {
               } gap-x-2`}
             >
               <Button
-                icon={"pi pi-user"}
+                icon="pi pi-user"
                 rounded
                 className={`w-10 h-10 ${
                   message.type === "bot"
@@ -421,20 +420,20 @@ const ChatComponent = () => {
 
                   <div
                     className="message-body font-content break-words prose prose-sm max-w-none
-                    prose-headings:font-subheading prose-headings:text-color5
-                    prose-p:text-color5 prose-li:text-color5
-                    prose-strong:text-color5 prose-code:text-color1
-                    prose-code:bg-color3 prose-code:px-1 prose-code:rounded
-                    prose-pre:bg-color3 prose-pre:border prose-pre:border-color1
-                    prose-table:text-color5 prose-th:border prose-th:border-color1
-                    prose-th:bg-color3 prose-td:border prose-td:border-color1"
+                      prose-headings:font-subheading prose-headings:text-color5
+                      prose-p:text-color5 prose-li:text-color5
+                      prose-strong:text-color5 prose-code:text-color1
+                      prose-code:bg-color3 prose-code:px-1 prose-code:rounded
+                      prose-pre:bg-color3 prose-pre:border prose-pre:border-color1
+                      prose-table:text-color5 prose-th:border prose-th:border-color1
+                      prose-th:bg-color3 prose-td:border prose-td:border-color1"
                   >
                     <ReactMarkdown remarkPlugins={[remarkGfm]}>
                       {message.text}
                     </ReactMarkdown>
                   </div>
 
-                  {/* Footer: timestamp + badges + version nav + retry */}
+                  {/* Footer */}
                   <div className="flex items-center justify-between mt-1 flex-wrap gap-y-1">
                     <small className="text-color1 font-subheading">
                       {new Date(message.timestamp)?.toLocaleTimeString()}
@@ -463,7 +462,7 @@ const ChatComponent = () => {
                         </small>
                       )}
 
-                      {/* Version navigation arrows */}
+                      {/* Version navigation — replaces Retry once retried */}
                       {message.type === "bot" && hasVersions && (
                         <div className="flex items-center gap-1">
                           <button
@@ -490,43 +489,13 @@ const ChatComponent = () => {
                         </div>
                       )}
 
-                      {/* Retry button: only last bot message, only before first retry */}
+                      {/* RetryPopover — only on last bot message, before first retry */}
                       {showRetry && (
-                        <div className="relative" ref={retryMenuRef}>
-                          <button
-                            type="button"
-                            onClick={() => setRetryMenuOpen((v) => !v)}
-                            className="flex items-center gap-1 text-xs text-color1 font-subheading opacity-50 hover:opacity-100 transition-opacity"
-                            aria-label="Retry response"
-                          >
-                            <i className="pi pi-refresh text-xs" />
-                            <span>Retry</span>
-                          </button>
-
-                          {retryMenuOpen && (
-                            <div className="absolute bottom-full right-0 mb-1 bg-color2 border border-color1 rounded-md shadow-lg z-20 min-w-[140px] py-1">
-                              <p className="text-xs font-subheading opacity-50 px-3 py-1">
-                                Retry with
-                              </p>
-                              {RETRY_MODELS.map((m) => (
-                                <button
-                                  key={m.model}
-                                  type="button"
-                                  onClick={() =>
-                                    handleRetry(m.provider, m.model)
-                                  }
-                                  className={`w-full text-left px-3 py-1.5 text-sm font-content hover:bg-color3 transition-colors flex items-center justify-between
-                                    ${config.model === m.model ? "text-color1 font-semibold" : "text-color5"}`}
-                                >
-                                  <span>{m.label}</span>
-                                  {config.model === m.model && (
-                                    <i className="pi pi-check text-xs" />
-                                  )}
-                                </button>
-                              ))}
-                            </div>
-                          )}
-                        </div>
+                        <RetryPopover
+                          currentModel={config.model}
+                          isLoading={isLoading}
+                          onRetry={handleRetry}
+                        />
                       )}
                     </div>
                   </div>
@@ -539,7 +508,7 @@ const ChatComponent = () => {
         {isLoading && (
           <div className="w-full flex flex-row gap-x-2">
             <Button
-              icon={"pi pi-user"}
+              icon="pi pi-user"
               rounded
               className="w-10 h-10 bg-color2 text-color5 shadow-sm"
             />
@@ -555,18 +524,17 @@ const ChatComponent = () => {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input bar: paperclip upload + text input + send */}
+      {/* Input bar */}
       <form
         onSubmit={handleSendMessage}
         className="send-message-form flex gap-x-2 items-center"
       >
-        {/* Hidden file input for paperclip */}
         <input
           ref={fileInputRef}
           type="file"
           multiple
           accept={ACCEPT_TYPES}
-          onChange={handleFileInputChange}
+          onChange={(e) => handleFileUpload(Array.from(e.target.files ?? []))}
           className="hidden"
         />
 

@@ -1,31 +1,33 @@
 // reactjs/src/Services/interfacesAndTypes.ts
 
 export type MessageVersion = {
-  versionIndex: number; // 0 = original, 1 = first retry, 2 = second retry
+  versionIndex: number;
   text: string;
   provider?: string;
   model?: string;
   timestamp: string;
   ragUsed?: boolean;
-  intent?: string;
 };
 
 export type Message = {
   id: string | number;
-  text: string; // always mirrors versions[activeVersionIndex].text — display source of truth
+  // db_id is the actual backend row id — used for retry upsert.
+  // undefined on locally-created messages (user bubbles, pending confirm cards).
+  db_id?: number;
+  text: string;
   type: "user" | "bot";
   timestamp: string;
   provider?: string;
   model?: string;
   ragUsed?: boolean;
-  intent?: string; // ← new: 'memory' | 'document' | 'general'
+  intent?: "memory" | "document" | "general";
   isPendingConfirm?: boolean;
   confirmToken?: string;
   ragChunks?: RagChunk[];
-  // ── Version history ───────────────────────────────────────────────────
-  versions?: MessageVersion[]; // ALL versions, immutable once written
-  activeVersionIndex?: number; // which version is currently displayed
-  totalVersions?: number; // versions.length — avoids recomputing
+  // Version history — immutable append-only array, activeVersionIndex is the pointer
+  versions?: MessageVersion[];
+  activeVersionIndex?: number;
+  totalVersions?: number;
 };
 
 export interface FeedbackFormType {
@@ -59,6 +61,7 @@ export type TulipChatRequest = {
   max_tokens?: number;
   rag_mode?: "off" | "ask" | "auto";
   confirm_token?: string;
+  retry_message_id?: number; // ← tells backend to upsert instead of insert
 };
 
 export type TulipChatResponse = {
@@ -71,7 +74,7 @@ export type TulipChatResponse = {
   rag_used: boolean;
   rag_chunks: RagChunk[] | null;
   confirm_token: string | null;
-  intent: "memory" | "document" | "general"; // ← new
+  intent: "memory" | "document" | "general";
 };
 
 export type RagChunk = {

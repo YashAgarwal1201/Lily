@@ -8,48 +8,40 @@ import {
 } from "./interfacesAndTypes";
 import { AVAILABLE_MODELS } from "./constants";
 
+const MAX_VERSIONS = 3;
+
 type MessageStore = {
   messages: Message[];
   addMessage: (message: Message) => void;
   clearMessages: () => void;
-
   /**
-   * Replaces the last bot message with a new version.
-   * Pushes the previous version into `versions[]` first, then appends the new one.
-   * The new version becomes the active one.
+   * Replaces the last real bot message in-place.
+   * Pushes the old version into versions[], caps at MAX_VERSIONS.
+   * Returns the db_id of the replaced message (for retry_message_id on the API call).
    */
   replaceLastBotMessage: (
     updated: Pick<
       Message,
-      "text" | "provider" | "model" | "timestamp" | "ragUsed"
+      "text" | "provider" | "model" | "timestamp" | "ragUsed" | "intent"
     >,
-  ) => void;
-
-  /**
-   * Navigates between stored versions on a message.
-   * Only updates activeVersionIndex + syncs the root text/provider/model fields.
-   * Never mutates `versions[]`.
-   */
+  ) => number | undefined;
   navigateVersion: (
     messageId: string | number,
     direction: "prev" | "next",
   ) => void;
-
   sessionId: string | null;
   sessions: Session[];
   setSessionId: (id: string | null) => void;
   setSessions: (sessions: Session[]) => void;
-
   config: ChatConfig;
   setConfig: (config: Partial<ChatConfig>) => void;
-
   isLoading: boolean;
   setIsLoading: (v: boolean) => void;
   gatewayOnline: boolean;
   setGatewayOnline: (v: boolean) => void;
-
   loadSessionMessages: (
     rawMessages: {
+      id?: number;
       role: string;
       content: string;
       provider?: string;
@@ -69,7 +61,9 @@ const useMessageStore = create<MessageStore>((set) => ({
 
   clearMessages: () => set({ messages: [], sessionId: null }),
 
-  replaceLastBotMessage: (updated) =>
+  replaceLastBotMessage: (updated) => {
+    let replacedDbId: number | undefined;
+
     set((state) => {
       const messages = [...state.messages];
 
@@ -83,17 +77,16 @@ const useMessageStore = create<MessageStore>((set) => ({
       }
 
       if (lastBotIdx === -1) {
-        // No prior bot message — this is a first response, just add it normally
-        // (shouldn't happen via retry path, but guard anyway)
+        // No prior bot message — shouldn't happen via retry, but guard
         return { messages };
       }
 
       const existing = messages[lastBotIdx];
-      const existingVersions: MessageVersion[] = existing.versions ?? [];
+      replacedDbId = existing.db_id;
 
-      // If this is the very first time a version was created for this message,
-      // seed versions[] with the original response first
-      const seededVersions: MessageVersion[] =
+      // Seed versions array with existing versions (or create from current state)
+      const existingVersions: MessageVersion[] = existing.versions ?? [];
+      const seeded: MessageVersion[] =
         existingVersions.length === 0
           ? [
               {
@@ -107,9 +100,7 @@ const useMessageStore = create<MessageStore>((set) => ({
             ]
           : existingVersions;
 
-      // New version index = length of seeded list (0-based, always grows)
-      const newVersionIndex = seededVersions.length;
-
+      const newVersionIndex = seeded.length;
       const newVersion: MessageVersion = {
         versionIndex: newVersionIndex,
         text: updated.text,
@@ -119,16 +110,18 @@ const useMessageStore = create<MessageStore>((set) => ({
         ragUsed: updated.ragUsed,
       };
 
-      const allVersions = [...seededVersions, newVersion];
+      // Immutable append, cap at MAX_VERSIONS
+      const allVersions = [...seeded, newVersion].slice(-MAX_VERSIONS);
 
       messages[lastBotIdx] = {
         ...existing,
-        // Sync root fields to the new (latest) version
+        // Sync root fields to newest version (display source of truth)
         text: updated.text,
         provider: updated.provider,
         model: updated.model,
         timestamp: updated.timestamp,
         ragUsed: updated.ragUsed,
+        intent: updated.intent ?? existing.intent,
         // Version state
         versions: allVersions,
         activeVersionIndex: newVersionIndex,
@@ -136,29 +129,29 @@ const useMessageStore = create<MessageStore>((set) => ({
       };
 
       return { messages };
-    }),
+    });
+
+    return replacedDbId;
+  },
 
   navigateVersion: (messageId, direction) =>
-    set((state) => {
-      const messages = state.messages.map((m) => {
+    set((state) => ({
+      messages: state.messages.map((m) => {
         if (m.id !== messageId || !m.versions || m.versions.length <= 1)
           return m;
 
         const currentActive = m.activeVersionIndex ?? 0;
         const maxIndex = m.versions.length - 1;
-
         const newActive =
           direction === "prev"
             ? Math.max(0, currentActive - 1)
             : Math.min(maxIndex, currentActive + 1);
 
-        if (newActive === currentActive) return m; // already at boundary
+        if (newActive === currentActive) return m;
 
-        // Find the version snapshot for the new index
         const target = m.versions.find((v) => v.versionIndex === newActive);
         if (!target) return m;
 
-        // Sync root fields to the navigated version — versions[] is untouched
         return {
           ...m,
           text: target.text,
@@ -168,10 +161,8 @@ const useMessageStore = create<MessageStore>((set) => ({
           ragUsed: target.ragUsed,
           activeVersionIndex: newActive,
         };
-      });
-
-      return { messages };
-    }),
+      }),
+    })),
 
   sessionId: null,
   sessions: [],
@@ -190,17 +181,20 @@ const useMessageStore = create<MessageStore>((set) => ({
 
   isLoading: false,
   setIsLoading: (v) => set({ isLoading: v }),
+
   gatewayOnline: false,
   setGatewayOnline: (v) => set({ gatewayOnline: v }),
 
   loadSessionMessages: (rawMessages) => {
     const mapped: Message[] = rawMessages.map((m, i) => ({
       id: i,
+      db_id: m.id, // ← preserve backend row id for retry upsert
       text: m.content,
       type: m.role === "assistant" ? "bot" : "user",
       timestamp: m.created_at,
       provider: m.provider,
       model: m.model,
+      // Each loaded message starts as a single-version slot
       versions: [
         {
           versionIndex: 0,
